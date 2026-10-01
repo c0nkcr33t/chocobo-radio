@@ -1,0 +1,19 @@
+<Project Sdk="Dalamud.NET.Sdk/15.0.0">
+  <PropertyGroup>
+    <Version>0.2.0.0</Version>
+    <Author>c0nkcr33t</Author>
+    <Name>Chocobo Radio</Name>
+    <Punchline>Your mount's internet radio.</Punchline>
+    <Description>Open a radio panel on mounting and listen to saved internet stations inside the plugin, following game music settings.</Description>
+    <Tags>radio;audio;mount</Tags>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="NAudio-LICENSE.txt" CopyToOutputDirectory="PreserveNewest" />
+    <Compile Remove="tests/**/*.cs" />
+    <PackageReference Include="NAudio.WinMM" Version="2.2.1" />
+    <Reference Update="Dalamud"><HintPath>$(DalamudLibPath)Dalamud.dll</HintPath></Reference>
+    <Reference Update="Dalamud.Bindings.ImGui"><HintPath>$(DalamudLibPath)Dalamud.Bindings.ImGui.dll</HintPath></Reference>
+    <Reference Update="Dalamud.Bindings.ImPlot"><HintPath>$(DalamudLibPath)Dalamud.Bindings.ImPlot.dll</HintPath></Reference>
+    <Reference Update="Dalamud.Bindings.ImGuizmo"><HintPath>$(DalamudLibPath)Dalamud.Bindings.ImGuizmo.dll</HintPath></Reference>
+  </ItemGroup>
+</Project>

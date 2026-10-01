@@ -1,0 +1,12 @@
+bin/
+obj/
+.dalamud/
+.dotnet/
+.vs/
+*.user
+.idea/
+*.suo
+.DS_Store
+.env
+.env.*
+!.env.example
