@@ -17,6 +17,7 @@ public sealed class Configuration : IPluginConfiguration
     public int Version { get; set; } = 1;
     public bool OpenOnMount { get; set; } = true;
     public bool AutoPlay { get; set; } = false;
+    public bool FullTimePlayback { get; set; } = false;
     public bool MuteGameMusic { get; set; } = true;
     public int Volume { get; set; } = 35;
     public int SelectedStation { get; set; }

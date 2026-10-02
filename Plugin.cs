@@ -23,6 +23,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly GameMusicController music;
     private bool wasMounted;
     private bool wasLoggedIn;
+    private readonly PlaybackPolicy playbackPolicy = new();
 
     public Plugin()
     {
@@ -59,12 +60,16 @@ public sealed class Plugin : IDalamudPlugin
         if (mounted && !wasMounted)
         {
             if (Config.OpenOnMount) window.IsOpen = true;
-            if (Config.AutoPlay) Player.Play(Config);
+
         }
-        else if ((!mounted && wasMounted) || (!loggedIn && wasLoggedIn))
+        else if ((!mounted && wasMounted && !Config.FullTimePlayback) || (!loggedIn && wasLoggedIn))
         {
-            Player.Stop();
             window.IsOpen = false;
+        }
+        switch (playbackPolicy.Update(loggedIn, mounted, Config.FullTimePlayback, Config.AutoPlay, Player.IsRunning))
+        {
+            case PlaybackAction.Play: Player.Play(Config); break;
+            case PlaybackAction.Stop: Player.Stop(); break;
         }
         wasMounted = mounted;
         wasLoggedIn = loggedIn;

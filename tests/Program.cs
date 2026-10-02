@@ -124,7 +124,19 @@ Check(TrackInfo.FromMetadata(System.Text.Encoding.UTF8.GetBytes("StreamUrl='some
 Check(TrackInfo.FromMetadata(System.Text.Encoding.Latin1.GetBytes("StreamTitle='Beyoncé - Song';"))?.Artist == "Beyoncé", "Legacy metadata encoding");
 Check(TrackInfo.FromMetadata(System.Text.Encoding.UTF8.GetBytes("StreamTitle='DJ's evening show';"))?.Title == "DJ's evening show", "Unstructured title with apostrophe");
 
-Console.WriteLine("Passed: ICY framing and metadata, fragmented MP3 frames, position, EOF, truncation, and stalled-read cancellation, music ownership/restoration, user overrides, and restoration retry.");
+var policy = new PlaybackPolicy();
+Check(policy.Update(true, false, false, true, false) == PlaybackAction.None, "Mount-only login is quiet");
+Check(policy.Update(true, true, false, true, false) == PlaybackAction.Play, "Mount autoplay");
+Check(policy.Update(true, true, false, true, false) == PlaybackAction.None, "Manual stop is respected on mount");
+Check(policy.Update(true, false, false, true, true) == PlaybackAction.Stop, "Dismount stops mount mode");
+Check(policy.Update(true, false, true, true, false) == PlaybackAction.Play, "Enable full-time autoplay");
+Check(policy.Update(true, true, true, true, true) == PlaybackAction.None, "Mount does not restart full-time stream");
+Check(policy.Update(true, false, true, true, true) == PlaybackAction.None, "Full-time dismount continues");
+Check(policy.Update(true, false, true, true, false) == PlaybackAction.None, "Full-time manual stop/failure stays stopped");
+Check(policy.Update(false, false, true, true, true) == PlaybackAction.Stop, "Logout always stops");
+Check(policy.Update(true, false, true, true, false) == PlaybackAction.Play, "Full-time login autoplay");
+Check(policy.Update(true, false, false, true, true) == PlaybackAction.Stop, "Switch back to mount-only while unmounted");
+Console.WriteLine("Passed: ICY framing and metadata, playback policy, fragmented MP3 frames, position, EOF, truncation, and stalled-read cancellation, music ownership/restoration, user overrides, and restoration retry.");
 
 static void Check(bool condition, string name)
 {

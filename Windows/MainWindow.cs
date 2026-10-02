@@ -42,6 +42,8 @@ internal sealed class MainWindow : Window
         ImGui.Separator();
         var popup = config.OpenOnMount;
         if (ImGui.Checkbox("Open panel when mounting", ref popup)) { config.OpenOnMount = popup; config.Save(); }
+        var fullTime = config.FullTimePlayback;
+        if (ImGui.Checkbox("Keep playing off mount", ref fullTime)) { config.FullTimePlayback = fullTime; config.Save(); }
         var autoplay = config.AutoPlay;
         if (ImGui.Checkbox("Play selected station when mounting", ref autoplay)) { config.AutoPlay = autoplay; config.Save(); }
         var muteMusic = config.MuteGameMusic;
