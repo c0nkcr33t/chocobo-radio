@@ -21,6 +21,14 @@ the developer; the remaining verification checklist is in ../README.md.
 The archive includes the plugin, manifest, NAudio and NLayer dependencies, and their
 license. Do not commit build output or the copied Dalamud SDK assemblies.
 
-GitHub releases and a Dalamud custom plugin repository are separate. There is
-no custom installer feed (`pluginmaster.json`) yet; users currently extract the
-release and load it through Dalamud Dev Plugin Locations.
+The custom repository URL is:
+
+```text
+https://raw.githubusercontent.com/c0nkcr33t/chocobo-radio/main/pluginmaster.json
+```
+
+For the initial release, publish tag `v0.3.0` with the built `latest.zip` attached.
+The feed points at that exact tag. For later releases, update `AssemblyVersion`,
+`LastUpdate` (Unix seconds), and both download URLs in `pluginmaster.json`.
+The feed version must exactly match the manifest inside the ZIP. Publish the
+release asset before pushing the updated feed so clients can download it.

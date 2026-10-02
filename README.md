@@ -8,6 +8,19 @@ Windows audio output. No external player, FFmpeg, or executable path is required
 The radio follows FFXIV's master and BGM volume/mute controls. Its own volume
 slider is an additional multiplier and changes volume without reconnecting.
 
+## Install through Dalamud
+
+Add this URL under `/xlsettings` → **Experimental → Custom Plugin Repositories**:
+
+```text
+https://raw.githubusercontent.com/c0nkcr33t/chocobo-radio/main/pluginmaster.json
+```
+
+Save, open `/xlplugins`, and install **Chocobo Radio**. The matching GitHub
+release must be published with `latest.zip` attached before installation works.
+If you previously loaded the dev build, disable it and remove its Dev Plugin
+Location first to avoid loading two copies. Restart the game if needed.
+
 ## Setup
 
 1. Load the plugin and run `/chocoboradio`.
@@ -48,7 +61,7 @@ Experimental > Dev Plugin Locations, add the `ChocoboRadio.dll` path. Keep the
 generated JSON manifest and dependencies beside it. The release archive is
 `bin/Release/ChocoboRadio/latest.zip`.
 
-This project does not yet have a published custom repository or release URL.
+The custom repository feed is `pluginmaster.json`; see the installation section above.
 The embedded player targets Windows; Wine/Linux/macOS playback is unverified.
 Initial playback on the Windows game PC has been confirmed by the developer.
 

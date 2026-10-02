@@ -5,6 +5,7 @@
     <Name>Chocobo Radio</Name>
     <Punchline>Your mount's internet radio.</Punchline>
     <Description>Open a radio panel on mounting and listen to saved internet stations inside the plugin, following game music settings.</Description>
+    <RepoUrl>https://github.com/c0nkcr33t/chocobo-radio</RepoUrl>
     <Tags>radio;audio;mount</Tags>
   </PropertyGroup>
   <ItemGroup>
