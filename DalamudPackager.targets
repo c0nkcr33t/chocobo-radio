@@ -2,7 +2,7 @@
     <Target Name="ChocoboRadioPackagerDebug"
             AfterTargets="Build"
             Condition="'$(Configuration)' == 'Debug'">
-        <DalamudPackager Include="ChocoboRadio.dll;ChocoboRadio.json;ChocoboRadio.deps.json;NAudio.Core.dll;NAudio.WinMM.dll;NAudio-LICENSE.txt;NLayer.dll;NLayer.NAudioSupport.dll;NLayer-LICENSE.txt" ProjectDir="$(ProjectDir)"
+        <DalamudPackager Include="ChocoboRadio.dll;ChocoboRadio.json;ChocoboRadio.deps.json;NAudio.Core.dll;NAudio.WinMM.dll;NAudio-LICENSE.txt;NLayer.dll;NLayer.NAudioSupport.dll;NLayer-LICENSE.txt;Rajdhani-LICENSE.txt;IBMPlexMono-LICENSE.txt" ProjectDir="$(ProjectDir)"
                          OutputPath="$(OutputPath)"
                          AssemblyName="$(AssemblyName)"
                          MakeZip="false"
@@ -30,7 +30,7 @@
     <Target Name="ChocoboRadioPackagerRelease"
             AfterTargets="Build"
             Condition="'$(Configuration)' == 'Release'">
-        <DalamudPackager Include="ChocoboRadio.dll;ChocoboRadio.json;ChocoboRadio.deps.json;NAudio.Core.dll;NAudio.WinMM.dll;NAudio-LICENSE.txt;NLayer.dll;NLayer.NAudioSupport.dll;NLayer-LICENSE.txt" ProjectDir="$(ProjectDir)"
+        <DalamudPackager Include="ChocoboRadio.dll;ChocoboRadio.json;ChocoboRadio.deps.json;NAudio.Core.dll;NAudio.WinMM.dll;NAudio-LICENSE.txt;NLayer.dll;NLayer.NAudioSupport.dll;NLayer-LICENSE.txt;Rajdhani-LICENSE.txt;IBMPlexMono-LICENSE.txt" ProjectDir="$(ProjectDir)"
                          OutputPath="$(OutputPath)"
                          AssemblyName="$(AssemblyName)"
                          MakeZip="true"

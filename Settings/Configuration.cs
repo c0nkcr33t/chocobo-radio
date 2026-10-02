@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Numerics;
 using Dalamud.Configuration;
 
 namespace ChocoboRadio;
@@ -20,6 +21,7 @@ public sealed class Configuration : IPluginConfiguration
     public bool FullTimePlayback { get; set; } = false;
     public bool ScrollTrackText { get; set; } = true;
     public bool MuteGameMusic { get; set; } = true;
+    public Vector3 AccentColor { get; set; } = new(1f, 0.72f, 0.30f);
     public int Volume { get; set; } = 35;
     public int SelectedStation { get; set; }
     public List<Station> Stations { get; set; } = new();

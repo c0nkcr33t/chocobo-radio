@@ -9,6 +9,7 @@
     <Tags>radio;audio;mount</Tags>
   </PropertyGroup>
   <ItemGroup>
+    <EmbeddedResource Include="assets/fonts/*.ttf" LogicalName="ChocoboRadio.Fonts.%(Filename)%(Extension)" />
     <None Include="licenses/*.txt" Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <Compile Remove="tests/**/*.cs" />
     <PackageReference Include="NLayer.NAudioSupport" Version="2.0.1" />
