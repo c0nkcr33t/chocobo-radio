@@ -311,7 +311,12 @@ internal sealed class MainWindow : Window, IDisposable
         {
             var gap = Math.Max(available * 0.65f, ImGui.GetTextLineHeight() * 5);
             var cycle = textWidth + gap;
-            offset = (float)(Math.Max(0, ImGui.GetTime() - scrollStarted - 2) * 28 % cycle);
+            const double pauseSeconds = 2;
+            const double pixelsPerSecond = 28;
+            var cycleSeconds = pauseSeconds + cycle / pixelsPerSecond;
+            var cycleTime = Math.Max(0, ImGui.GetTime() - scrollStarted) % cycleSeconds;
+            // Hold the beginning on every lap, including the first one.
+            offset = (float)(Math.Max(0, cycleTime - pauseSeconds) * pixelsPerSecond);
             // The second copy enters after a gap. At wrap, it occupies precisely
             // the first copy's position, so there is no visible reset jump.
             draw.AddText(line + new Vector2(cycle - offset, 0), ImGui.GetColorU32(Accent), title);
