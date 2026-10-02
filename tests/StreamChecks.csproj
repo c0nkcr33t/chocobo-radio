@@ -10,6 +10,7 @@
     <Compile Include="../Audio/GameMusicController.cs" Link="GameMusicController.cs" />
     <Compile Include="../Audio/IcyAudioStream.cs" Link="IcyAudioStream.cs" />
     <Compile Include="../Audio/TrackInfo.cs" Link="TrackInfo.cs" />
+    <Compile Include="../Audio/DismountTransition.cs" Link="DismountTransition.cs" />
     <Compile Include="../Audio/PlaybackPolicy.cs" Link="PlaybackPolicy.cs" />
     <PackageReference Include="NAudio.Core" Version="2.2.1" />
   </ItemGroup>

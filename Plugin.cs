@@ -43,17 +43,6 @@ public sealed class Plugin : IDalamudPlugin
 
     private void Update(IFramework framework)
     {
-        music.Update(Config.MuteGameMusic && Player.IsPlaying);
-        // Missing settings fail closed instead of unexpectedly playing at full volume.
-        var settings = GameConfig.System;
-        var available = settings.TryGetUInt("SoundMaster", out var master)
-            & settings.TryGetUInt("SoundBgm", out var bgm)
-            & settings.TryGetUInt("IsSndMaster", out var masterMuted)
-            & settings.TryGetUInt("IsSndBgm", out var bgmMuted);
-        Player.SetVolume(available && masterMuted == 0 && (bgmMuted == 0 || music.OwnsMute)
-            ? System.Math.Clamp(Config.Volume / 100f, 0, 1)
-                * System.Math.Clamp(master / 100f, 0, 1) * System.Math.Clamp(bgm / 100f, 0, 1)
-            : 0);
         var loggedIn = ClientState.IsLoggedIn;
         var mounted = loggedIn && (Conditions[ConditionFlag.Mounted] ||
             Conditions[ConditionFlag.RidingPillion] || Conditions[ConditionFlag.InFlight]);
@@ -66,11 +55,26 @@ public sealed class Plugin : IDalamudPlugin
         {
             window.IsOpen = false;
         }
-        switch (playbackPolicy.Update(loggedIn, mounted, Config.FullTimePlayback, Config.AutoPlay, Player.IsRunning))
+        switch (playbackPolicy.Update(loggedIn, mounted, Config.FullTimePlayback, Config.AutoPlay, Player.IsRunning && !Player.IsSuspended))
         {
             case PlaybackAction.Play: Player.Play(Config); break;
-            case PlaybackAction.Stop: Player.Stop(); break;
+            case PlaybackAction.Stop:
+                if (loggedIn && wasMounted && !mounted && !Config.FullTimePlayback) Player.SuspendForRemount();
+                else Player.Stop();
+                break;
         }
+        Player.Poll();
+        music.Update(Config.MuteGameMusic && Player.SuppressGameMusic);
+        // Missing settings fail closed instead of unexpectedly playing at full volume.
+        var settings = GameConfig.System;
+        var available = settings.TryGetUInt("SoundMaster", out var master)
+            & settings.TryGetUInt("SoundBgm", out var bgm)
+            & settings.TryGetUInt("IsSndMaster", out var masterMuted)
+            & settings.TryGetUInt("IsSndBgm", out var bgmMuted);
+        Player.SetVolume(available && masterMuted == 0 && (bgmMuted == 0 || music.OwnsMute)
+            ? System.Math.Clamp(Config.Volume / 100f, 0, 1)
+                * System.Math.Clamp(master / 100f, 0, 1) * System.Math.Clamp(bgm / 100f, 0, 1)
+            : 0);
         wasMounted = mounted;
         wasLoggedIn = loggedIn;
     }

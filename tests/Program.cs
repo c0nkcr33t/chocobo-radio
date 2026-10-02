@@ -136,6 +136,29 @@ Check(policy.Update(true, false, true, true, false) == PlaybackAction.None, "Ful
 Check(policy.Update(false, false, true, true, true) == PlaybackAction.Stop, "Logout always stops");
 Check(policy.Update(true, false, true, true, false) == PlaybackAction.Play, "Full-time login autoplay");
 Check(policy.Update(true, false, false, true, true) == PlaybackAction.Stop, "Switch back to mount-only while unmounted");
+Check(DismountTransition.Gain(0) == 1, "Dismount fade starts at full gain");
+Check(Math.Abs(DismountTransition.Gain(400) - 0.5f) < 0.001f, "Dismount fade midpoint");
+Check(DismountTransition.Gain(800) == 0 && DismountTransition.Gain(15000) == 0, "Dismount stays silent after fade");
+var previousGain = 1f;
+for (var elapsed = 0; elapsed <= 1000; elapsed += 10)
+{
+    var currentGain = DismountTransition.Gain(elapsed);
+    Check(currentGain <= previousGain && currentGain >= 0, "Fade is monotonic and bounded");
+    previousGain = currentGain;
+}
+var transitionMuted = false;
+var transitionMusic = new GameMusicController(() => transitionMuted, value => transitionMuted = value, ex => throw ex);
+transitionMusic.Update(true);
+transitionMusic.Update(DismountTransition.HoldMusic(800));
+Check(transitionMuted, "Game music stays muted after radio fade completes");
+transitionMusic.Update(DismountTransition.HoldMusic(2999));
+Check(transitionMuted, "Mount music transition is held muted");
+transitionMusic.Update(DismountTransition.HoldMusic(3000));
+Check(!transitionMuted, "Game music restored after transition hold");
+transitionMusic.Update(true);
+transitionMusic.Update(false);
+Check(!transitionMuted, "Manual stop bypasses dismount hold");
+Console.WriteLine("Passed: dismount fade envelope and delayed game music restoration.");
 Console.WriteLine("Passed: ICY framing and metadata, playback policy, fragmented MP3 frames, position, EOF, truncation, and stalled-read cancellation, music ownership/restoration, user overrides, and restoration retry.");
 
 static void Check(bool condition, string name)

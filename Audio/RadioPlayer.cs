@@ -14,10 +14,14 @@ internal sealed class RadioPlayer : IDisposable
     private Session? session;
     private string status = "Stopped";
     private float gain;
-    public string Status => session?.Status ?? status;
+    private long remountDeadline;
+    public bool IsSuspended => session is { Suspended: true, Finished: false };
+    public string Status => IsSuspended && session!.IsFading ? "Fading out after dismount…" : IsSuspended ? "Silent — keeping the stream ready for a quick remount (15 seconds)." : session?.Status ?? status;
     public TrackInfo Track => session?.Track ?? TrackInfo.Empty;
     public string PlayingStation => session?.StationName ?? "";
-    public bool IsPlaying => session is { Started: true, Finished: false };
+    public bool IsPlaying => session is { Started: true, Finished: false, Suspended: false };
+    // Hold the mute briefly after dismount so the game's outgoing mount theme stays hidden.
+    public bool SuppressGameMusic => IsPlaying || (IsSuspended && session!.HoldDismountMute);
     public bool IsRunning => session is { Finished: false };
 
     public void SetVolume(float value)
@@ -28,6 +32,14 @@ internal sealed class RadioPlayer : IDisposable
 
     public void Play(Configuration config)
     {
+        Poll();
+        if (IsSuspended && config.SelectedStation >= 0 && config.SelectedStation < config.Stations.Count &&
+            Uri.TryCreate(config.Stations[config.SelectedStation].Url, UriKind.Absolute, out var requested) &&
+            session!.Source == requested)
+        {
+            session.Suspended = false;
+            return;
+        }
         Stop();
         if (config.SelectedStation < 0 || config.SelectedStation >= config.Stations.Count)
         {
@@ -42,6 +54,18 @@ internal sealed class RadioPlayer : IDisposable
             return;
         }
         session = new Session(uri, station.Name, gain);
+    }
+
+    public void SuspendForRemount()
+    {
+        if (session is not { Finished: false } || IsSuspended) return;
+        session.Suspend();
+        remountDeadline = Environment.TickCount64 + 15_000;
+    }
+
+    public void Poll()
+    {
+        if (session is { Suspended: true } && (session.Finished || Environment.TickCount64 >= remountDeadline)) Stop();
     }
 
     public void Stop()
@@ -59,6 +83,17 @@ internal sealed class RadioPlayer : IDisposable
         private readonly CancellationTokenSource cancellation = new();
         private bool disposed;
         private volatile bool stopped;
+        public readonly Uri Source;
+        public volatile bool Suspended;
+        private long suspensionStarted;
+        public bool IsFading => Environment.TickCount64 - Interlocked.Read(ref suspensionStarted) < DismountTransition.FadeMilliseconds;
+        public bool HoldDismountMute => DismountTransition.HoldMusic(Environment.TickCount64 - Interlocked.Read(ref suspensionStarted));
+
+        public void Suspend()
+        {
+            Interlocked.Exchange(ref suspensionStarted, Environment.TickCount64);
+            Suspended = true;
+        }
         public readonly string StationName;
         public volatile TrackInfo Track = TrackInfo.Empty;
         public volatile bool Finished;
@@ -70,6 +105,7 @@ internal sealed class RadioPlayer : IDisposable
         {
             Gain = gain;
             StationName = name;
+            Source = uri;
             _ = Task.Run(() => Run(uri, name));
         }
 
@@ -174,7 +210,14 @@ internal sealed class RadioPlayer : IDisposable
             {
                 var read = source.Read(buffer, offset, count);
                 var gain = owner.stopped ? 0 : owner.Gain;
-                for (var i = offset; i < offset + read; i++) buffer[i] *= gain;
+                var suspended = owner.Suspended;
+                var elapsed = Environment.TickCount64 - Interlocked.Read(ref owner.suspensionStarted);
+                for (var i = 0; i < read; i++)
+                {
+                    // Apply the envelope per audio frame, independent of game frame rate.
+                    var fade = suspended ? DismountTransition.Gain(elapsed + (i / WaveFormat.Channels) * 1000.0 / WaveFormat.SampleRate) : 1;
+                    buffer[offset + i] *= gain * fade;
+                }
                 return read;
             }
         }
