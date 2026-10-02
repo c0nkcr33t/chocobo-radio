@@ -75,7 +75,56 @@ Check(retry.OwnsMute && errors == 1, "retain ownership on restore failure");
 failRestore = false;
 retry.Update(false);
 Check(!muted && !retry.OwnsMute, "retry restoration");
-Console.WriteLine("Passed: fragmented MP3 frames, position, EOF, truncation, and stalled-read cancellation, music ownership/restoration, user overrides, and restoration retry.");
+// Metadata may split even an MP3 header; the decoder must receive identical audio bytes.
+using (var icyBytes = new MemoryStream())
+{
+    var meta = System.Text.Encoding.UTF8.GetBytes("StreamTitle='Björk - Jóga';");
+    var interval = 19;
+    for (var offset = 0; offset < bytes.Length; offset += interval)
+    {
+        var length = Math.Min(interval, bytes.Length - offset);
+        icyBytes.Write(bytes, offset, length);
+        if (length == interval)
+        {
+            if (offset == 0)
+            {
+                var blocks = (meta.Length + 15) / 16;
+                icyBytes.WriteByte((byte)blocks);
+                icyBytes.Write(meta);
+                icyBytes.Write(new byte[blocks * 16 - meta.Length]);
+            }
+            else icyBytes.WriteByte(0);
+        }
+    }
+    using var source = new FragmentedStream(icyBytes.ToArray());
+    using var timed = new CancellableReadStream(source, CancellationToken.None);
+    var updates = new List<TrackInfo>();
+    using var stream = new IcyAudioStream(timed, interval, block => updates.Add(TrackInfo.FromMetadata(block)!));
+    var first = Mp3Frame.LoadFromStream(stream);
+    var second = Mp3Frame.LoadFromStream(stream);
+    Check(first.RawData.SequenceEqual(bytes[..417]), "ICY stripped from first MP3 frame");
+    Check(second.RawData.SequenceEqual(bytes[417..]), "ICY stripped from second MP3 frame");
+    Check(second.FileOffset == 417 && stream.Position == bytes.Length, "ICY audio-only position");
+    Check(updates.Count == 1 && updates[0] == new TrackInfo("Björk", "Jóga"), "UTF8 metadata and zero-block retention");
+    Check(Mp3Frame.LoadFromStream(stream) == null, "ICY clean EOF");
+}
+using (var source = new MemoryStream(new byte[] { 1, 2, 3, 4, 2, 42 }))
+using (var stream = new IcyAudioStream(source, 4, _ => { }))
+{
+    try { stream.ReadExactly(new byte[8]); throw new Exception("Expected truncated ICY error"); }
+    catch (EndOfStreamException) { }
+}
+using (var source = new MemoryStream(bytes))
+using (var stream = new IcyAudioStream(source, 0, _ => throw new Exception("Unexpected metadata")))
+{
+    Check(Mp3Frame.LoadFromStream(stream).FrameLength == 417, "No-metadata stream passthrough");
+}
+Check(TrackInfo.FromMetadata(System.Text.Encoding.UTF8.GetBytes("StreamTitle='';")) == TrackInfo.Empty, "Explicit empty title clears metadata");
+Check(TrackInfo.FromMetadata(System.Text.Encoding.UTF8.GetBytes("StreamUrl='something';")) == null, "Missing title does not clear metadata");
+Check(TrackInfo.FromMetadata(System.Text.Encoding.Latin1.GetBytes("StreamTitle='Beyoncé - Song';"))?.Artist == "Beyoncé", "Legacy metadata encoding");
+Check(TrackInfo.FromMetadata(System.Text.Encoding.UTF8.GetBytes("StreamTitle='DJ's evening show';"))?.Title == "DJ's evening show", "Unstructured title with apostrophe");
+
+Console.WriteLine("Passed: ICY framing and metadata, fragmented MP3 frames, position, EOF, truncation, and stalled-read cancellation, music ownership/restoration, user overrides, and restoration retry.");
 
 static void Check(bool condition, string name)
 {

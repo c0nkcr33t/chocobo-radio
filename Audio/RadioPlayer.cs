@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,6 +15,8 @@ internal sealed class RadioPlayer : IDisposable
     private string status = "Stopped";
     private float gain;
     public string Status => session?.Status ?? status;
+    public TrackInfo Track => session?.Track ?? TrackInfo.Empty;
+    public string PlayingStation => session?.StationName ?? "";
     public bool IsPlaying => session is { Started: true, Finished: false };
     public bool IsRunning => session is { Finished: false };
 
@@ -56,6 +59,8 @@ internal sealed class RadioPlayer : IDisposable
         private readonly CancellationTokenSource cancellation = new();
         private bool disposed;
         private volatile bool stopped;
+        public readonly string StationName;
+        public volatile TrackInfo Track = TrackInfo.Empty;
         public volatile bool Finished;
         public volatile bool Started;
         public volatile float Gain;
@@ -64,6 +69,7 @@ internal sealed class RadioPlayer : IDisposable
         public Session(Uri uri, string name, float gain)
         {
             Gain = gain;
+            StationName = name;
             _ = Task.Run(() => Run(uri, name));
         }
 
@@ -84,17 +90,24 @@ internal sealed class RadioPlayer : IDisposable
             {
                 using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
                 client.DefaultRequestHeaders.UserAgent.ParseAdd("ChocoboRadio/0.3");
-                client.DefaultRequestHeaders.TryAddWithoutValidation("Icy-MetaData", "0");
+                client.DefaultRequestHeaders.TryAddWithoutValidation("Icy-MetaData", "1");
                 using var response = await client.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false);
                 response.EnsureSuccessStatusCode();
                 var type = response.Content.Headers.ContentType?.MediaType;
                 if (type != null && type != "audio/mpeg" && type != "audio/mp3" && type != "application/octet-stream")
                     throw new InvalidDataException("This version needs a direct MP3 stream (not AAC, HLS, or a web player).");
-                if (response.Headers.Contains("icy-metaint"))
-                    throw new InvalidDataException("This station sends embedded metadata despite requesting audio only. Try another direct MP3 endpoint.");
+                var interval = 0;
+                if (response.Headers.TryGetValues("icy-metaint", out var intervals) &&
+                    (!int.TryParse(intervals.SingleOrDefault(), out interval) || interval <= 0))
+                    throw new InvalidDataException("Station sent an invalid ICY metadata interval.");
                 using var network = await response.Content.ReadAsStreamAsync(token).ConfigureAwait(false);
                 using var buffered = new BufferedStream(network, 16384);
-                using var input = new CancellableReadStream(buffered, token);
+                using var timed = new CancellableReadStream(buffered, token);
+                using var input = new IcyAudioStream(timed, interval, block =>
+                {
+                    var track = TrackInfo.FromMetadata(block);
+                    if (track != null) Track = track;
+                });
                 var frame = Mp3Frame.LoadFromStream(input) ?? throw new InvalidDataException("The stream contained no MP3 audio.");
                 var channels = frame.ChannelMode == ChannelMode.Mono ? 1 : 2;
                 var format = new Mp3WaveFormat(frame.SampleRate, channels, frame.FrameLength, frame.BitRate);
