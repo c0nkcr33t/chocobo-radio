@@ -1,11 +1,13 @@
 using System;
 using System.Numerics;
+using System.Threading;
+using System.Threading.Tasks;
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
 
 namespace ChocoboRadio;
 
-internal sealed class MainWindow : Window
+internal sealed class MainWindow : Window, IDisposable
 {
     private readonly Plugin plugin;
     private bool initialSize = true;
@@ -16,6 +18,10 @@ internal sealed class MainWindow : Window
     private string editName = "";
     private string editUrl = "";
     private string editMessage = "";
+    private CancellationTokenSource? lookupCancellation;
+    private Task<string?>? nameLookup;
+    private string lookupUrl = "";
+    private string lookupOriginalName = "";
     private static readonly Vector4 Amber = new(1f, 0.72f, 0.30f, 1);
     private static readonly Vector4 Muted = new(0.55f, 0.64f, 0.68f, 1);
 
@@ -210,9 +216,11 @@ internal sealed class MainWindow : Window
     private void DrawStations()
     {
         var config = plugin.Config;
+        PollNameLookup();
         ImGui.TextColored(Amber, "SAVED STATIONS");
         if (ImGui.Button("Add station"))
         {
+            CancelNameLookup();
             editedStation = null;
             editIndex = -1;
             editName = "New station";
@@ -224,7 +232,8 @@ internal sealed class MainWindow : Window
             for (var i = 0; i < config.Stations.Count; i++)
             {
                 if (!ImGui.Selectable($"{config.Stations[i].Name}##saved{i}", editedStation == config.Stations[i])) continue;
-                    editIndex = i;
+                CancelNameLookup();
+                editIndex = i;
                 editedStation = config.Stations[i];
                 editName = editedStation.Name;
                 editUrl = editedStation.Url;
@@ -233,14 +242,21 @@ internal sealed class MainWindow : Window
             ImGui.EndListBox();
         }
         ImGui.InputText("Name", ref editName, 256);
-        ImGui.InputText("MP3 stream URL", ref editUrl, 2048);
+        if (ImGui.InputText("MP3 stream URL", ref editUrl, 2048)) CancelNameLookup();
+        if (ImGui.IsItemDeactivatedAfterEdit() && (string.IsNullOrWhiteSpace(editName) || editName == "New station"))
+            StartNameLookup();
+        ImGui.BeginDisabled(nameLookup != null);
+        if (ImGui.SmallButton("Find station name")) StartNameLookup();
+        ImGui.EndDisabled();
+        if (nameLookup != null) { ImGui.SameLine(); ImGui.TextUnformatted("Looking up name…"); }
         if (ImGui.Button(editedStation == null ? "Save new station" : "Save changes"))
         {
             if (string.IsNullOrWhiteSpace(editName) || !Uri.TryCreate(editUrl.Trim(), UriKind.Absolute, out var uri) ||
                 (uri.Scheme != "https" && uri.Scheme != "http")) editMessage = "Enter a name and a direct HTTP(S) MP3 stream URL.";
             else
             {
-                    if (editedStation == null)
+                CancelNameLookup();
+                if (editedStation == null)
                 {
                     editedStation = new Station();
                     config.Stations.Add(editedStation);
@@ -267,7 +283,8 @@ internal sealed class MainWindow : Window
             if (ImGui.Button("Delete station") && editedStation != null)
             {
                 if (config.SelectedStation == editIndex) plugin.Player.Stop();
-                    config.Stations.RemoveAt(editIndex);
+                CancelNameLookup();
+                config.Stations.RemoveAt(editIndex);
                 if (config.SelectedStation > editIndex) config.SelectedStation--;
                 config.SelectedStation = Math.Clamp(config.SelectedStation, 0, Math.Max(0, config.Stations.Count - 1));
                 config.Save();
@@ -282,6 +299,45 @@ internal sealed class MainWindow : Window
         }
         ImGui.TextWrapped(editMessage);
     }
+
+    private void StartNameLookup()
+    {
+        CancelNameLookup();
+        lookupUrl = editUrl.Trim();
+        lookupOriginalName = editName;
+        lookupCancellation = new CancellationTokenSource();
+        nameLookup = StationNameLookup.FindAsync(lookupUrl, lookupCancellation.Token);
+    }
+
+    private void PollNameLookup()
+    {
+        if (nameLookup is not { IsCompleted: true }) return;
+        try
+        {
+            var name = nameLookup.GetAwaiter().GetResult();
+            if (editUrl.Trim() == lookupUrl && editName == lookupOriginalName)
+            {
+                if (name != null) { editName = name; editMessage = "Name found. Save to keep it."; }
+                else editMessage = "This station does not send a name. Enter one manually.";
+            }
+        }
+        catch (OperationCanceledException) { editMessage = "Name lookup timed out or was cancelled. You can enter a name manually."; }
+        catch (Exception) { editMessage = "Could not read the station name. Check the URL or enter a name manually."; }
+        finally { CancelNameLookup(); }
+    }
+
+    private void CancelNameLookup()
+    {
+        lookupCancellation?.Cancel();
+        lookupCancellation?.Dispose();
+        lookupCancellation = null;
+        // Observe eventual failures from requests superseded by another edit.
+        if (nameLookup != null)
+            _ = nameLookup.ContinueWith(task => { _ = task.Exception; }, TaskContinuationOptions.OnlyOnFaulted);
+        nameLookup = null;
+    }
+
+    public void Dispose() => CancelNameLookup();
 
     private void DrawSettings()
     {

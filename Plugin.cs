@@ -83,6 +83,7 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.OpenConfigUi -= window.Toggle;
         Commands.RemoveHandler("/chocoboradio");
         windows.RemoveAllWindows();
+        window.Dispose();
         Player.Dispose();
         music.Update(false);
     }
