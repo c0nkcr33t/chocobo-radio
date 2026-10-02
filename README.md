@@ -13,7 +13,7 @@ slider is an additional multiplier and changes volume without reconnecting.
 Add this URL under `/xlsettings` → **Experimental → Custom Plugin Repositories**:
 
 ```text
-https://raw.githubusercontent.com/c0nkcr33t/chocobo-radio/main/pluginmaster.json
+https://raw.githubusercontent.com/c0nkcr33t/dalamud-plugins/main/pluginmaster.json
 ```
 
 Save, open `/xlplugins`, and install **Chocobo Radio**. The matching GitHub
@@ -119,3 +119,10 @@ On the game PC, verify music restoration after Stop, dismount, stream failure,
 and unload. Also test with BGM already muted, suppression disabled, and manual
 unmute during playback. Verify radio/master/BGM volume changes apply live.
 Copy the entire new release archive, including the added NLayer libraries.
+
+## One-command releases
+
+With changes committed on `main`, run `./scripts/release.sh MAJOR.MINOR.PATCH`.
+GitHub Actions builds, tests, and publishes the ZIP; the shared catalog picks it
+up within about 30 minutes (GitHub schedules may be delayed). See [docs/RELEASING.md](docs/RELEASING.md)
+for details.
