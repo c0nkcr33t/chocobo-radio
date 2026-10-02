@@ -44,6 +44,12 @@ internal sealed class MainWindow : Window
         if (ImGui.Checkbox("Open panel when mounting", ref popup)) { config.OpenOnMount = popup; config.Save(); }
         var autoplay = config.AutoPlay;
         if (ImGui.Checkbox("Play selected station when mounting", ref autoplay)) { config.AutoPlay = autoplay; config.Save(); }
+        var muteMusic = config.MuteGameMusic;
+        if (ImGui.Checkbox("Mute game music while radio plays", ref muteMusic))
+        {
+            config.MuteGameMusic = muteMusic;
+            config.Save();
+        }
         if (ImGui.CollapsingHeader("Stations"))
         {
             ImGui.TextWrapped("Add a direct MP3 audio stream URL. Playback follows FFXIV master and BGM volume/mute settings.");

@@ -36,7 +36,46 @@ using (var stream = new CancellableReadStream(source, cancellation.Token))
     try { await read.WaitAsync(TimeSpan.FromSeconds(2)); throw new Exception("Expected cancellation"); }
     catch (OperationCanceledException) { }
 }
-Console.WriteLine("Passed: fragmented MP3 frames, position, EOF, truncation, and stalled-read cancellation.");
+bool muted = false;
+var writes = new List<bool>();
+var music = new GameMusicController(() => muted, value => { muted = value; writes.Add(value); }, ex => throw ex);
+music.Update(true);
+Check(muted && music.OwnsMute, "suppression owns its mute");
+music.Update(true);
+Check(writes.Count == 1, "no repeated writes while playing");
+music.Update(false);
+Check(!muted && !music.OwnsMute, "restore on stop/failure/unload");
+muted = true;
+music.Update(true);
+Check(!music.OwnsMute, "pre-existing user mute remains a radio mute");
+music.Update(false);
+Check(muted, "preserve pre-existing mute");
+muted = false;
+music.Update(true);
+muted = false; // user unmutes during playback
+music.Update(true);
+Check(!music.OwnsMute && !muted, "respect user override");
+music.Update(true);
+Check(!muted, "do not re-mute after user override");
+music.Update(false);
+music.Update(true);
+Check(muted && music.OwnsMute, "next session can suppress again");
+music.Update(false);
+var failRestore = false;
+var errors = 0;
+var retry = new GameMusicController(() => muted, value =>
+{
+    if (failRestore) throw new IOException("Settings unavailable");
+    muted = value;
+}, _ => errors++);
+retry.Update(true);
+failRestore = true;
+retry.Update(false);
+Check(retry.OwnsMute && errors == 1, "retain ownership on restore failure");
+failRestore = false;
+retry.Update(false);
+Check(!muted && !retry.OwnsMute, "retry restoration");
+Console.WriteLine("Passed: fragmented MP3 frames, position, EOF, truncation, and stalled-read cancellation, music ownership/restoration, user overrides, and restoration retry.");
 
 static void Check(bool condition, string name)
 {

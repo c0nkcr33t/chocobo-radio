@@ -1,11 +1,10 @@
 # Chocobo Radio
 
-Experimental Dalamud API 15 plugin based on the adjacent DJ Scraper template.
 Shows a radio panel when you mount, including passenger seats and flying.
 Open it manually with `/chocoboradio`.
 
-Audio plays **inside the plugin**, using bundled NAudio libraries and Windows'
-MP3 decoder/output. No external player, FFmpeg, or executable path is required.
+Audio plays **inside the plugin**, using NLayer for MP3 decoding and NAudio for
+Windows audio output. No external player, FFmpeg, or executable path is required.
 The radio follows FFXIV's master and BGM volume/mute controls. Its own volume
 slider is an additional multiplier and changes volume without reconnecting.
 
@@ -20,30 +19,6 @@ slider is an additional multiplier and changes volume without reconnecting.
 Dismounting, logging out, and unloading cancel playback. Closing the panel keeps
 playback running. Stop stays stopped until manual Play or the next mount.
 
-No station is bundled. The earlier SomaFM preset was removed because its
-[published stream terms](https://somafm.com/groovesalad/directstreamlinks.html)
-exclude use in video games. Existing saved stations are preserved; the earlier
-AAC preset will need removing/replacing. Old ffplay settings are ignored.
-
-## What “in-game” means here
-
-Playback runs in FFXIV's process and mirrors the game's master/BGM sliders and
-mute switches through Dalamud's game configuration API. It is not injected into
-FFXIV's native sound engine. The Windows default output device is used, which
-may differ from the game's selected device. Background/inactive-window audio
-settings, positional audio, and native music fades are not mirrored yet.
-
-Normal game music is not automatically suppressed. Muting BGM also mutes the
-radio, so it cannot be used to suppress only the original music. Automatically
-replacing or ducking mount music is a separate future feature.
-
-**Other players cannot hear this local playback**, including passengers on the
-same mount. Playing a local sound effect would not transmit arbitrary audio to
-other clients either. Shared listening would require compatible plugins on
-participants' clients, a way to share station/session state, and synchronization.
-That feature is not implemented; live station buffering can also differ between
-listeners.
-
 ## Build and install
 
 For a standalone checkout, install .NET 10 and obtain the matching Dalamud
@@ -55,7 +30,7 @@ dotnet build ChocoboRadio.csproj -c Release "-p:DalamudLibPath=C:\path\to\Hooks\
 dotnet run --project tests/StreamChecks.csproj
 ```
 
-Keep the trailing separator on `DalamudLibPath`. See [RELEASING.md](RELEASING.md)
+Keep the trailing separator on `DalamudLibPath`. See [release instructions](docs/RELEASING.md)
 for release packaging.
 
 Use .NET and Dalamud development assemblies matching API 15. From the workspace
@@ -68,7 +43,7 @@ scripts/dj-scraper-plugin/.dotnet/dotnet build \
 ```
 
 Copy the complete `bin/Release` output to a dedicated folder on the game PC,
-including **NAudio.Core.dll** and **NAudio.WinMM.dll**. In Dalamud Settings >
+including all **NAudio** and **NLayer** DLLs and license files. In Dalamud Settings >
 Experimental > Dev Plugin Locations, add the `ChocoboRadio.dll` path. Keep the
 generated JSON manifest and dependencies beside it. The release archive is
 `bin/Release/ChocoboRadio/latest.zip`.
@@ -91,27 +66,43 @@ Initial playback on the Windows game PC has been confirmed by the developer.
   metadata, fades, or shared sessions yet.
 - Zone transitions may stop playback if mount state briefly clears.
 
-## Verification
+## Game music
 
-The release build and automated stream checks can run on the development host:
+**Mute game music while radio plays** defaults to enabled. Music is muted once
+radio playback starts, then restored when playback stops, fails, or the plugin
+unloads. Master and BGM sliders still control radio volume. Only a mute applied
+by Chocobo Radio is ignored for radio volume; a pre-existing user mute still
+silences it.
 
-```bash
-scripts/dj-scraper-plugin/.dotnet/dotnet run \
-  --project scripts/chocobo-radio/tests/StreamChecks.csproj
-```
+If you unmute music during playback, that override is respected for the rest of
+the session. Use radio Stop/volume controls to silence radio while suppression
+is active, since the game's BGM checkbox is already muted. Another plugin
+writing the same mute value cannot be distinguished from our own change.
+A game crash cannot run restoration; check the BGM mute manually afterward.
 
-The checks cover actual NAudio MP3 frame parsing across fragmented reads,
-position tracking on a non-seekable source, EOF/truncation, and cancellation of
-stalled reads. They do not exercise Windows decoding/output or the game client.
+This still uses plugin audio output, not FFXIV's native audio engine. Other
+players do not hear the stream automatically. NLayer removes the Windows ACM
+decoder dependency; Wine/Proton playback still needs verification.
 
-Before release, test on the game PC:
+## Repository layout
 
-- Play a direct MP3 station; verify no external player process is launched.
-- Change radio, master, and BGM volume; test both game mute toggles. Confirm
-  changes apply without reconnecting or changing the saved game settings.
-- Mount, fly, land, dismount, and ride as a passenger. Landing alone should not
-  stop playback. Check zoning behavior.
-- Stop/switch stations repeatedly while connecting and playing; verify an old
-  session never resumes audibly. Close/reopen the panel while playing.
-- Log out or unload while connecting/playing; verify audio stops.
-- Disconnect the network or output device; verify errors and manual reconnect.
+- `Plugin.cs`: Dalamud services and mount lifecycle.
+- `Audio/`: streaming, decoder/output, and music mute ownership.
+- `Settings/`: persisted settings and station definitions.
+- `Windows/`: in-game interface.
+- `tests/`: stream and music-state checks.
+- `docs/`: release instructions.
+- `licenses/`: dependency licenses included in the release.
+
+Namespaces remain unchanged to preserve saved configuration compatibility.
+
+## Testing this update
+
+Run `dotnet run --project tests/StreamChecks.csproj` for fragmented MP3 reads,
+EOF/truncation, cancellation, music restoration, user overrides, and restoration
+retry checks. These tests do not exercise Windows audio output or the client.
+
+On the game PC, verify music restoration after Stop, dismount, stream failure,
+and unload. Also test with BGM already muted, suppression disabled, and manual
+unmute during playback. Verify radio/master/BGM volume changes apply live.
+Copy the entire new release archive, including the added NLayer libraries.

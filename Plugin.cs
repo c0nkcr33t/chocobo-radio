@@ -20,12 +20,17 @@ public sealed class Plugin : IDalamudPlugin
     internal RadioPlayer Player { get; } = new();
     private readonly WindowSystem windows = new("ChocoboRadio");
     private readonly MainWindow window;
+    private readonly GameMusicController music;
     private bool wasMounted;
     private bool wasLoggedIn;
 
     public Plugin()
     {
         Config = PluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
+        music = new GameMusicController(
+            () => GameConfig.System.TryGetUInt("IsSndBgm", out var muted) ? muted != 0 : null,
+            muted => GameConfig.System.Set("IsSndBgm", muted ? 1u : 0u),
+            ex => Log.Error(ex, "Could not update game music mute state"));
         window = new MainWindow(this);
         windows.AddWindow(window);
         Commands.AddHandler("/chocoboradio", new CommandInfo((_, _) => window.Toggle()) { HelpMessage = "Open Chocobo Radio." });
@@ -37,13 +42,14 @@ public sealed class Plugin : IDalamudPlugin
 
     private void Update(IFramework framework)
     {
+        music.Update(Config.MuteGameMusic && Player.IsPlaying);
         // Missing settings fail closed instead of unexpectedly playing at full volume.
         var settings = GameConfig.System;
         var available = settings.TryGetUInt("SoundMaster", out var master)
             & settings.TryGetUInt("SoundBgm", out var bgm)
             & settings.TryGetUInt("IsSndMaster", out var masterMuted)
             & settings.TryGetUInt("IsSndBgm", out var bgmMuted);
-        Player.SetVolume(available && masterMuted == 0 && bgmMuted == 0
+        Player.SetVolume(available && masterMuted == 0 && (bgmMuted == 0 || music.OwnsMute)
             ? System.Math.Clamp(Config.Volume / 100f, 0, 1)
                 * System.Math.Clamp(master / 100f, 0, 1) * System.Math.Clamp(bgm / 100f, 0, 1)
             : 0);
@@ -73,5 +79,6 @@ public sealed class Plugin : IDalamudPlugin
         Commands.RemoveHandler("/chocoboradio");
         windows.RemoveAllWindows();
         Player.Dispose();
+        music.Update(false);
     }
 }

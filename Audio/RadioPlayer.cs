@@ -14,6 +14,7 @@ internal sealed class RadioPlayer : IDisposable
     private string status = "Stopped";
     private float gain;
     public string Status => session?.Status ?? status;
+    public bool IsPlaying => session is { Started: true, Finished: false };
     public bool IsRunning => session is { Finished: false };
 
     public void SetVolume(float value)
@@ -56,6 +57,7 @@ internal sealed class RadioPlayer : IDisposable
         private bool disposed;
         private volatile bool stopped;
         public volatile bool Finished;
+        public volatile bool Started;
         public volatile float Gain;
         public volatile string Status = "Connecting…";
 
@@ -81,7 +83,7 @@ internal sealed class RadioPlayer : IDisposable
             try
             {
                 using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(15) };
-                client.DefaultRequestHeaders.UserAgent.ParseAdd("ChocoboRadio/0.2");
+                client.DefaultRequestHeaders.UserAgent.ParseAdd("ChocoboRadio/0.3");
                 client.DefaultRequestHeaders.TryAddWithoutValidation("Icy-MetaData", "0");
                 using var response = await client.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, token).ConfigureAwait(false);
                 response.EnsureSuccessStatusCode();
@@ -96,7 +98,7 @@ internal sealed class RadioPlayer : IDisposable
                 var frame = Mp3Frame.LoadFromStream(input) ?? throw new InvalidDataException("The stream contained no MP3 audio.");
                 var channels = frame.ChannelMode == ChannelMode.Mono ? 1 : 2;
                 var format = new Mp3WaveFormat(frame.SampleRate, channels, frame.FrameLength, frame.BitRate);
-                using var decoder = new AcmMp3FrameDecompressor(format);
+                using var decoder = new NLayer.NAudioSupport.Mp3FrameDecompressor(format);
                 var buffer = new BufferedWaveProvider(decoder.OutputFormat)
                 {
                     BufferDuration = TimeSpan.FromSeconds(5),
@@ -104,7 +106,7 @@ internal sealed class RadioPlayer : IDisposable
                 };
                 using var output = new WaveOutEvent { DesiredLatency = 150 };
                 var samples = buffer.ToSampleProvider();
-                output.Init(new GainProvider(samples, this));
+                output.Init(new GainProvider(samples, this).ToWaveProvider16());
                 var pcm = new byte[65536];
                 var started = false;
                 do
@@ -126,6 +128,7 @@ internal sealed class RadioPlayer : IDisposable
                         token.ThrowIfCancellationRequested();
                         output.Play();
                         started = true;
+                        Started = true;
                         Status = $"Playing: {name}";
                     }
                     frame = Mp3Frame.LoadFromStream(input);

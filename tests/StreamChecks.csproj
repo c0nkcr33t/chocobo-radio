@@ -6,7 +6,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="../CancellableReadStream.cs" Link="CancellableReadStream.cs" />
+    <Compile Include="../Audio/CancellableReadStream.cs" Link="CancellableReadStream.cs" />
+    <Compile Include="../Audio/GameMusicController.cs" Link="GameMusicController.cs" />
     <PackageReference Include="NAudio.Core" Version="2.2.1" />
   </ItemGroup>
 </Project>
