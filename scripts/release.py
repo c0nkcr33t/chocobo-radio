@@ -23,8 +23,9 @@ def main():
     git('fetch', 'origin', 'main', '--tags')
     if git('rev-list', '--count', 'HEAD..origin/main') != '0':
         sys.exit('Local main is behind/diverged from origin/main. Integrate remote changes first.')
-    if git('tag', '--list', tag):
-        sys.exit('Tag already exists; choose a new version.')
+    tag_exists = bool(git('tag', '--list', tag))
+    if tag_exists and git('rev-list', '-n', '1', tag) != git('rev-parse', 'HEAD'):
+        sys.exit('Tag already exists on a different commit; choose a new version.')
     project, = ROOT.glob('*.csproj')
     current = ET.parse(project).findtext('./PropertyGroup/Version')
     if tuple(map(int, (version + '.0').split('.'))) < tuple(map(int, current.split('.'))):
@@ -37,7 +38,8 @@ def main():
         project.write_text(text)
         git('add', project.name)
         git('commit', '-m', 'Prepare release ' + tag)
-    git('tag', '-a', tag, '-m', 'Release ' + tag)
+    if not tag_exists:
+        git('tag', '-a', tag, '-m', 'Release ' + tag)
     try:
         git('push', '--atomic', 'origin', 'HEAD:refs/heads/main', 'refs/tags/' + tag)
     except subprocess.CalledProcessError:
