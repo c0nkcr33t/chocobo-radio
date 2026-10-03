@@ -16,7 +16,7 @@ internal sealed class RadioPlayer : IDisposable
     private float gain;
     private long remountDeadline;
     public bool IsSuspended => session is { Suspended: true, Finished: false };
-    public string Status => IsSuspended && session!.IsFading ? "Fading out after dismount…" : IsSuspended ? "Silent — keeping the stream ready for a quick remount (15 seconds)." : session?.Status ?? status;
+    public string Status => IsSuspended && session!.IsFading ? "Fading out after dismount…" : IsSuspended ? "Silent — keeping the stream ready for a resume (up to 60 seconds)." : session?.Status ?? status;
     public TrackInfo Track => session?.Track ?? TrackInfo.Empty;
     public string PlayingStation => session?.StationName ?? "";
     public bool IsPlaying => session is { Started: true, Finished: false, Suspended: false };
@@ -32,6 +32,7 @@ internal sealed class RadioPlayer : IDisposable
 
     public void Play(Configuration config)
     {
+        if (!config.PoweredOn) return;
         Poll();
         if (IsSuspended && config.SelectedStation >= 0 && config.SelectedStation < config.Stations.Count &&
             Uri.TryCreate(config.Stations[config.SelectedStation].Url, UriKind.Absolute, out var requested) &&
@@ -60,7 +61,15 @@ internal sealed class RadioPlayer : IDisposable
     {
         if (session is not { Finished: false } || IsSuspended) return;
         session.Suspend();
-        remountDeadline = Environment.TickCount64 + 15_000;
+        remountDeadline = Environment.TickCount64 + 60_000;
+    }
+
+    public void Pause()
+    {
+        if (session is not { Finished: false }) return;
+        // Do not extend the expiry on repeated power-off updates.
+        if (!IsSuspended) remountDeadline = Environment.TickCount64 + 60_000;
+        session.Pause();
     }
 
     public void Poll()
@@ -86,12 +95,20 @@ internal sealed class RadioPlayer : IDisposable
         public readonly Uri Source;
         public volatile bool Suspended;
         private long suspensionStarted;
-        public bool IsFading => Environment.TickCount64 - Interlocked.Read(ref suspensionStarted) < DismountTransition.FadeMilliseconds;
-        public bool HoldDismountMute => DismountTransition.HoldMusic(Environment.TickCount64 - Interlocked.Read(ref suspensionStarted));
+        private volatile bool fadeOnSuspend;
+        public bool IsFading => fadeOnSuspend && Environment.TickCount64 - Interlocked.Read(ref suspensionStarted) < DismountTransition.FadeMilliseconds;
+        public bool HoldDismountMute => fadeOnSuspend && DismountTransition.HoldMusic(Environment.TickCount64 - Interlocked.Read(ref suspensionStarted));
 
         public void Suspend()
         {
             Interlocked.Exchange(ref suspensionStarted, Environment.TickCount64);
+            fadeOnSuspend = true;
+            Suspended = true;
+        }
+
+        public void Pause()
+        {
+            fadeOnSuspend = false;
             Suspended = true;
         }
         public readonly string StationName;
@@ -215,7 +232,9 @@ internal sealed class RadioPlayer : IDisposable
                 for (var i = 0; i < read; i++)
                 {
                     // Apply the envelope per audio frame, independent of game frame rate.
-                    var fade = suspended ? DismountTransition.Gain(elapsed + (i / WaveFormat.Channels) * 1000.0 / WaveFormat.SampleRate) : 1;
+                    var fade = suspended
+                        ? (owner.fadeOnSuspend ? DismountTransition.Gain(elapsed + (i / WaveFormat.Channels) * 1000.0 / WaveFormat.SampleRate) : 0)
+                        : 1;
                     buffer[offset + i] *= gain * fade;
                 }
                 return read;

@@ -39,7 +39,8 @@ internal sealed class MainWindow : Window, IDisposable
     private float stationHeight;
     private float displayHeight;
     private volatile string fontWarning = "";
-    private Vector4 Accent => new(plugin.Config.AccentColor, 1);
+    private Vector3 DisplayAccent => plugin.Config.PoweredOn ? plugin.Config.AccentColor : new Vector3(0.6f);
+    private Vector4 Accent => new(DisplayAccent, 1);
     private static readonly Vector4 Muted = new(0.55f, 0.64f, 0.68f, 1);
 
     public MainWindow(Plugin plugin) : base("Chocobo Radio###ChocoboRadio")
@@ -101,8 +102,8 @@ internal sealed class MainWindow : Window, IDisposable
         var availableHeight = Math.Max(0, ImGui.GetMainViewport().WorkSize.Y - height - 16);
         editorHeight = Math.Min(330 * Math.Max(1, defaultHeight / 17f), availableHeight) * reveal;
         height += editorHeight;
-        var headerWidth = titleWidth + ImGui.GetFrameHeight() * 3
-            + style.ItemSpacing.X * 3 + style.WindowPadding.X * 2 + 20;
+        var headerWidth = titleWidth + ImGui.GetFrameHeight() * 4
+            + style.ItemSpacing.X * 4 + style.WindowPadding.X * 2 + 20;
         var minimumWidth = Math.Max(360, headerWidth);
         if (initialSize)
         {
@@ -119,8 +120,8 @@ internal sealed class MainWindow : Window, IDisposable
         };
         ImGui.PushStyleColor(ImGuiCol.WindowBg, new Vector4(0.065f, 0.065f, 0.06f, 1));
         ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.17f, 0.17f, 0.15f, 1));
-        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(plugin.Config.AccentColor * 0.32f, 1));
-        ImGui.PushStyleColor(ImGuiCol.ButtonActive, new Vector4(plugin.Config.AccentColor * 0.45f, 1));
+        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(DisplayAccent * 0.32f, 1));
+        ImGui.PushStyleColor(ImGuiCol.ButtonActive, new Vector4(DisplayAccent * 0.45f, 1));
         ImGui.PushStyleColor(ImGuiCol.SliderGrab, Accent);
         ImGui.PushStyleColor(ImGuiCol.Border, new Vector4(0.48f, 0.49f, 0.47f, 1));
         ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, 4f);
@@ -160,7 +161,7 @@ internal sealed class MainWindow : Window, IDisposable
             draw.AddLine(screw - new Vector2(2, 0), screw + new Vector2(2, 0), 0xff222222);
         }
         var badge = ImGui.GetCursorScreenPos();
-        var controlsWidth = ImGui.GetFrameHeight() * 3 + ImGui.GetStyle().ItemSpacing.X * 3;
+        var controlsWidth = ImGui.GetFrameHeight() * 4 + ImGui.GetStyle().ItemSpacing.X * 4;
         var badgeSize = new Vector2(Math.Max(100, ImGui.GetContentRegionAvail().X - controlsWidth), headerHeight);
         ImGui.InvisibleButton("##DragFaceplate", badgeSize);
         using (titleFont?.Push())
@@ -186,6 +187,13 @@ internal sealed class MainWindow : Window, IDisposable
         ImGui.SameLine();
         if (PanelButton("settings", FontAwesomeIcon.Cog, "Settings", EditorPanel.Settings)) ToggleEditor(EditorPanel.Settings);
         ImGui.SameLine();
+        if (IconButton("power", FontAwesomeIcon.PowerOff, plugin.Config.PoweredOn ? "Power off — standby" : "Power on"))
+        {
+            plugin.Config.PoweredOn = !plugin.Config.PoweredOn;
+            if (!plugin.Config.PoweredOn) plugin.Player.Pause();
+            plugin.Config.Save();
+        }
+        ImGui.SameLine();
         if (IconButton("close", FontAwesomeIcon.Times, "Hide radio")) IsOpen = false;
         DrawPlayer();
         DrawEditor();
@@ -204,7 +212,7 @@ internal sealed class MainWindow : Window, IDisposable
     private bool PanelButton(string id, FontAwesomeIcon icon, string tooltip, EditorPanel panel)
     {
         var selected = editorOpen && editorPanel == panel;
-        if (selected) ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(plugin.Config.AccentColor * 0.35f, 1));
+        if (selected) ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(DisplayAccent * 0.35f, 1));
         var clicked = IconButton(id, icon, tooltip);
         if (selected) ImGui.PopStyleColor();
         return clicked;
@@ -223,9 +231,9 @@ internal sealed class MainWindow : Window, IDisposable
         ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(0.035f, 0.045f, 0.045f, 1));
         ImGui.PushStyleColor(ImGuiCol.FrameBg, new Vector4(0.10f, 0.13f, 0.13f, 1));
         ImGui.PushStyleColor(ImGuiCol.CheckMark, Accent);
-        ImGui.PushStyleColor(ImGuiCol.Header, new Vector4(plugin.Config.AccentColor * 0.25f, 1));
-        ImGui.PushStyleColor(ImGuiCol.HeaderHovered, new Vector4(plugin.Config.AccentColor * 0.35f, 1));
-        ImGui.PushStyleColor(ImGuiCol.HeaderActive, new Vector4(plugin.Config.AccentColor * 0.45f, 1));
+        ImGui.PushStyleColor(ImGuiCol.Header, new Vector4(DisplayAccent * 0.25f, 1));
+        ImGui.PushStyleColor(ImGuiCol.HeaderHovered, new Vector4(DisplayAccent * 0.35f, 1));
+        ImGui.PushStyleColor(ImGuiCol.HeaderActive, new Vector4(DisplayAccent * 0.45f, 1));
         ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 6f);
         // An explicit child height clips the contents as the enclosure grows.
         // Each editor retains its own scroll position and scrolls independently of playback.
@@ -260,13 +268,14 @@ internal sealed class MainWindow : Window, IDisposable
         ImGui.BeginGroup();
         DrawDisplay(displayWidth, displayHeight);
         var hasStations = config.Stations.Count > 0;
-        ImGui.BeginDisabled(!hasStations);
+        ImGui.BeginDisabled(!hasStations || !config.PoweredOn);
         var buttonWidth = (displayWidth - spacing.X * 2) / 3;
         if (IconButton("previous", FontAwesomeIcon.StepBackward, "Previous station", buttonWidth)) ChangeStation(-1);
         ImGui.SameLine();
-        if (IconButton("playback", plugin.Player.IsRunning ? FontAwesomeIcon.Stop : FontAwesomeIcon.Play, plugin.Player.IsRunning ? "Stop radio" : "Play radio", buttonWidth))
+        var active = plugin.Player.IsRunning && !plugin.Player.IsSuspended;
+        if (IconButton("playback", active ? FontAwesomeIcon.Pause : FontAwesomeIcon.Play, active ? "Pause radio" : "Play radio", buttonWidth))
         {
-            if (plugin.Player.IsRunning) plugin.Player.Stop();
+            if (active) plugin.Player.Pause();
             else plugin.Player.Play(config);
         }
         ImGui.SameLine();
@@ -288,12 +297,24 @@ internal sealed class MainWindow : Window, IDisposable
         var draw = ImGui.GetWindowDrawList();
         draw.AddRectFilled(origin, origin + new Vector2(width, height), ImGui.GetColorU32(new Vector4(0.02f, 0.035f, 0.035f, 1)), 6);
         draw.AddRect(origin, origin + new Vector2(width, height), ImGui.GetColorU32(new Vector4(0.2f, 0.29f, 0.27f, 1)), 6);
+        if (!plugin.Config.PoweredOn)
+        {
+            using (titleFont?.Push())
+            {
+                const string standby = "STANDBY";
+                var textSize = ImGui.CalcTextSize(standby);
+                draw.AddText(origin + (new Vector2(width, height) - textSize) / 2, ImGui.GetColorU32(Muted), standby);
+            }
+            ImGui.Dummy(new Vector2(width, height));
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip("Radio powered off. Use the power button to enable playback.");
+            return;
+        }
         var station = plugin.Player.PlayingStation;
         if (station.Length == 0 && plugin.Config.SelectedStation >= 0 && plugin.Config.SelectedStation < plugin.Config.Stations.Count)
             station = plugin.Config.Stations[plugin.Config.SelectedStation].Name;
         if (station.Length == 0) station = "NO STATION SELECTED";
         var track = plugin.Player.Track;
-        var title = track.Display.Length > 0 ? (track.Artist.Length > 0 ? $"{track.Artist} - {track.Title}" : track.Title) : plugin.Player.IsRunning ? "Waiting for station track information…" : "Ready when you are";
+        var title = !plugin.Player.IsRunning || plugin.Player.IsSuspended ? "" : track.Display.Length > 0 ? (track.Artist.Length > 0 ? $"{track.Artist} - {track.Title}" : track.Title) : "Waiting for station track information…";
         var left = origin + new Vector2(10, 6);
         var right = origin + new Vector2(width - 10, height - 4);
         draw.PushClipRect(left, right, true);
@@ -331,7 +352,7 @@ internal sealed class MainWindow : Window, IDisposable
     {
         plugin.Config.SelectedStation = index;
         plugin.Config.Save();
-        if (plugin.Player.IsRunning) plugin.Player.Play(plugin.Config);
+        if (plugin.Player.IsRunning && !plugin.Player.IsSuspended) plugin.Player.Play(plugin.Config);
     }
 
     private void ChangeStation(int direction)
@@ -399,14 +420,14 @@ internal sealed class MainWindow : Window, IDisposable
                 editedStation.Name = editName.Trim();
                 editedStation.Url = uri.AbsoluteUri;
                 config.Save();
-                if (urlChanged && config.SelectedStation == editIndex && plugin.Player.IsRunning) plugin.Player.Play(config);
+                if (urlChanged && config.SelectedStation == editIndex && plugin.Player.IsRunning && !plugin.Player.IsSuspended) plugin.Player.Play(config);
                 editMessage = "Saved.";
             }
         }
         if (editedStation != null)
         {
             ImGui.SameLine();
-            if (ImGui.Button("Tune in")) { Tune(editIndex); if (!plugin.Player.IsRunning) plugin.Player.Play(config); }
+            if (ImGui.Button("Tune in")) { Tune(editIndex); if (!plugin.Player.IsRunning || plugin.Player.IsSuspended) plugin.Player.Play(config); }
             ImGui.SameLine();
             if (ImGui.Button("Delete")) ImGui.OpenPopup("Delete station?");
         }
@@ -485,6 +506,13 @@ internal sealed class MainWindow : Window, IDisposable
         var fullTime = config.FullTimePlayback;
         if (ImGui.Checkbox("Keep playing off mount", ref fullTime)) { config.FullTimePlayback = fullTime; config.Save(); }
         ImGui.TextWrapped(fullTime ? "Play throughout your session. Logout still stops radio." : "Dismounting stops the radio. You can also start it manually.");
+        var reduceInCutscenes = config.ReduceVolumeInCutscenes;
+        if (ImGui.Checkbox("Reduce radio volume during cutscenes", ref reduceInCutscenes))
+        {
+            config.ReduceVolumeInCutscenes = reduceInCutscenes;
+            config.Save();
+        }
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip("Use 20% of normal radio volume during cutscenes; restore it afterward.");
         var autoplay = config.AutoPlay;
         if (ImGui.Checkbox(fullTime ? "Autoplay on login / enabling full-time mode" : "Autoplay when mounting", ref autoplay)) { config.AutoPlay = autoplay; config.Save(); }
         var mute = config.MuteGameMusic;

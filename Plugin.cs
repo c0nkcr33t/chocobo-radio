@@ -55,7 +55,7 @@ public sealed class Plugin : IDalamudPlugin
         {
             window.IsOpen = false;
         }
-        switch (playbackPolicy.Update(loggedIn, mounted, Config.FullTimePlayback, Config.AutoPlay, Player.IsRunning && !Player.IsSuspended))
+        switch (playbackPolicy.Update(loggedIn, mounted, Config.FullTimePlayback, Config.AutoPlay && Config.PoweredOn, Player.IsRunning && !Player.IsSuspended))
         {
             case PlaybackAction.Play: Player.Play(Config); break;
             case PlaybackAction.Stop:
@@ -63,6 +63,7 @@ public sealed class Plugin : IDalamudPlugin
                 else Player.Stop();
                 break;
         }
+        if (!Config.PoweredOn) Player.Pause();
         Player.Poll();
         music.Update(Config.MuteGameMusic && Player.SuppressGameMusic);
         // Missing settings fail closed instead of unexpectedly playing at full volume.
@@ -71,8 +72,11 @@ public sealed class Plugin : IDalamudPlugin
             & settings.TryGetUInt("SoundBgm", out var bgm)
             & settings.TryGetUInt("IsSndMaster", out var masterMuted)
             & settings.TryGetUInt("IsSndBgm", out var bgmMuted);
+        var inCutscene = Conditions[ConditionFlag.WatchingCutscene]
+            || Conditions[ConditionFlag.WatchingCutscene78] || Conditions[ConditionFlag.OccupiedInCutSceneEvent];
         Player.SetVolume(available && masterMuted == 0 && (bgmMuted == 0 || music.OwnsMute)
             ? System.Math.Clamp(Config.Volume / 100f, 0, 1)
+                * (Config.ReduceVolumeInCutscenes && inCutscene ? 0.2f : 1f)
                 * System.Math.Clamp(master / 100f, 0, 1) * System.Math.Clamp(bgm / 100f, 0, 1)
             : 0);
         wasMounted = mounted;

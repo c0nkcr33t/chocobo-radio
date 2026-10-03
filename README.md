@@ -30,13 +30,10 @@ Location first.
 - Click the **antenna icon** for Stations. Choose **Add station**, enter a name
   and direct HTTP(S) MP3 stream URL, then **Save new station** and **Tune in**.
   Website links, playlist files, AAC, and HLS are not supported.
-- Use **Play/Stop**, previous/next station, and the vertical volume slider.
+- The **power button** toggles standby, stopping audio and blocking autoplay while off.
+- Use **Play/Pause**, previous/next station, and the vertical volume slider.
   Track information appears when provided by the station.
 - Click the **gear icon** for autoplay, **Keep playing off mount**, game-music
-  muting, accent colors, and scrolling. Click the active panel icon or its up
+  muting, cutscene volume reduction, accent colors, and scrolling. Cutscene reduction
+  defaults to 20% of normal volume and can be disabled. Click the active panel icon or its up
   arrow to collapse the panel.
-
-In mount-only mode, dismounting fades the radio out and keeps the stream ready
-for 15 seconds for a quick remount. With game-music muting enabled, music is
-restored after a brief delay to cover the mount-theme transition. Manual Stop
-and logout close the stream immediately.
