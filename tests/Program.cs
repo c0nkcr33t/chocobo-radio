@@ -1,5 +1,6 @@
 using ChocoboRadio;
 using NAudio.Wave;
+using SimpleFlac;
 
 // A valid MPEG-1 Layer III frame header, followed by synthetic payload. No decoding
 // here: exercise the actual NAudio parser against short, non-seekable HTTP-like reads.
@@ -25,11 +26,6 @@ using (var stream = new CancellableReadStream(source, CancellationToken.None))
 {
     try { Mp3Frame.LoadFromStream(stream); throw new Exception("Expected truncated-frame error"); }
     catch (EndOfStreamException) { }
-}
-using (var source = new FragmentedStream(bytes))
-{
-    var probe = await StationProbe.DetectAsync(source, "Test MP3");
-    Check(probe.StreamType == StationStreamType.Mp3 && probe.StationName == "Test MP3", "station probe detects MP3 and retains name");
 }
 using (var cancellation = new CancellationTokenSource())
 using (var source = new StalledStream())
@@ -140,6 +136,218 @@ Check(health.Update(2, false) == StreamHealth.Inactive, "inactive stream health"
 var capturedStatistics = new RadioStreamStatistics("MP3", 192000, 44100, 2, 1.5, 1000);
 Check(Math.Abs(capturedStatistics.EstimatedBufferedSeconds(1500) - 1.0) < 0.001, "buffer estimate accounts for playback time");
 
+// Build a complete Ogg page in memory. FragmentedStream limits every async read
+// to three bytes, like a network stream that does not fill requested buffers.
+var oggBody = new byte[] { 0x7f, (byte)'F', (byte)'L', (byte)'A', (byte)'C' };
+var oggBytes = new byte[27 + 1 + oggBody.Length];
+"OggS"u8.CopyTo(oggBytes);
+oggBytes[4] = 0; // stream structure version
+oggBytes[5] = 2; // beginning-of-stream flag
+System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(oggBytes.AsSpan(14, 4), 1234);
+System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(oggBytes.AsSpan(18, 4), 0);
+oggBytes[26] = 1; // one lacing value follows
+oggBytes[27] = (byte)oggBody.Length;
+oggBody.CopyTo(oggBytes, 28);
+
+using (var source = new FragmentedStream(oggBytes))
+{
+    var reader = new OggPageReader(source);
+    var page = await reader.ReadAsync();
+    if (page == null) throw new Exception("Failed: Ogg first page exists");
+    Check(page.IsBeginningOfStream, "Ogg beginning-of-stream flag");
+    Check(page.SerialNumber == 1234 && page.SequenceNumber == 0, "Ogg page identity");
+    Check(page.LacingValues.SequenceEqual(new byte[] { 5 }), "Ogg lacing table");
+    Check(page.Body.SequenceEqual(oggBody), "Ogg page body");
+    Check(await reader.ReadAsync() == null, "Ogg clean EOF");
+}
+
+// A 260-byte packet is split as 255 bytes in one page and five bytes in the
+// next. The packet reader must hide that page boundary from its caller.
+var longPacket = Enumerable.Range(0, 260).Select(i => (byte)i).ToArray();
+var firstPacketPage = CreateOggPage(
+    headerType: 0x02,
+    serialNumber: 42,
+    sequenceNumber: 0,
+    lacingValues: new byte[] { 255 },
+    body: longPacket[..255]);
+var secondPacketPage = CreateOggPage(
+    headerType: 0x01 | 0x04,
+    serialNumber: 42,
+    sequenceNumber: 1,
+    lacingValues: new byte[] { 5 },
+    body: longPacket[255..]);
+
+using (var source = new FragmentedStream(firstPacketPage.Concat(secondPacketPage).ToArray()))
+{
+    var reader = new OggPacketReader(new OggPageReader(source));
+    var packet = await reader.ReadAsync();
+    if (packet == null) throw new Exception("Failed: Ogg packet exists");
+    Check(packet.Data.SequenceEqual(longPacket), "Ogg packet assembled across pages");
+    Check(packet.SerialNumber == 42, "Ogg packet serial number");
+    Check(packet.IsBeginningOfStream && packet.IsEndOfStream, "Ogg packet boundary flags");
+    Check(await reader.ReadAsync() == null, "Ogg packet clean EOF");
+}
+
+// Reproduce the 51-byte identification packet seen in the station sample.
+var identificationBytes = new byte[51];
+identificationBytes[0] = 0x7f;
+"FLAC"u8.CopyTo(identificationBytes.AsSpan(1));
+identificationBytes[5] = 1; // Ogg-FLAC mapping major version
+identificationBytes[6] = 0; // mapping minor version
+System.Buffers.Binary.BinaryPrimitives.WriteUInt16BigEndian(identificationBytes.AsSpan(7, 2), 1);
+"fLaC"u8.CopyTo(identificationBytes.AsSpan(9));
+identificationBytes[13] = 0; // STREAMINFO metadata type
+identificationBytes[16] = 34; // 24-bit metadata length: 00 00 22
+System.Buffers.Binary.BinaryPrimitives.WriteUInt16BigEndian(identificationBytes.AsSpan(17, 2), 4096);
+System.Buffers.Binary.BinaryPrimitives.WriteUInt16BigEndian(identificationBytes.AsSpan(19, 2), 4096);
+var packedAudioInfo = ((ulong)44100 << 44) | ((ulong)1 << 41) | ((ulong)15 << 36);
+System.Buffers.Binary.BinaryPrimitives.WriteUInt64BigEndian(identificationBytes.AsSpan(27, 8), packedAudioInfo);
+
+var identification = OggFlacIdentification.Parse(
+    new OggPacket(42, identificationBytes, IsBeginningOfStream: true, IsEndOfStream: false));
+Check(identification.MajorVersion == 1 && identification.MinorVersion == 0, "Ogg-FLAC mapping version");
+Check(identification.HeaderPacketCount == 1, "Ogg-FLAC header packet count");
+Check(identification.StreamInfo.SampleRate == 44100, "FLAC sample rate");
+Check(identification.StreamInfo.Channels == 2, "FLAC channel count");
+Check(identification.StreamInfo.BitsPerSample == 16, "FLAC bits per sample");
+
+var commentText = System.Text.Encoding.UTF8.GetBytes("TITLE=Fragma - You Are Alive");
+var vendor = System.Text.Encoding.UTF8.GetBytes("test encoder");
+var commentPayloadLength = 4 + vendor.Length + 4 + 4 + commentText.Length;
+var commentPacket = new byte[4 + commentPayloadLength];
+commentPacket[0] = 0x84; // final metadata block, type 4 (Vorbis comments)
+commentPacket[3] = checked((byte)commentPayloadLength);
+var commentOffset = 4;
+System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(commentPacket.AsSpan(commentOffset, 4), (uint)vendor.Length);
+commentOffset += 4;
+vendor.CopyTo(commentPacket, commentOffset);
+commentOffset += vendor.Length;
+System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(commentPacket.AsSpan(commentOffset, 4), 1);
+commentOffset += 4;
+System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(commentPacket.AsSpan(commentOffset, 4), (uint)commentText.Length);
+commentOffset += 4;
+commentText.CopyTo(commentPacket, commentOffset);
+var comments = FlacVorbisComments.Parse(commentPacket);
+Check(comments.Vendor == "test encoder", "FLAC comment vendor");
+Check(comments.Track == new TrackInfo("Fragma", "You Are Alive"), "FLAC title comment");
+
+// The bridge removes only the nine-byte Ogg-FLAC mapping prefix, then joins
+// the native FLAC metadata and audio packets into one forward-only stream.
+var audioPacket = new byte[] { 0xff, 0xf8, 1, 2, 3 };
+// This synthetic identification says one header packet follows, so include its
+// comment block before audio just like the real stream.
+var identificationPage = CreateOggPage(
+    headerType: 0x02,
+    serialNumber: 77,
+    sequenceNumber: 0,
+    lacingValues: new byte[] { (byte)identificationBytes.Length },
+    body: identificationBytes);
+var audioPage = CreateOggPage(
+    headerType: 0,
+    serialNumber: 77,
+    sequenceNumber: 1,
+    lacingValues: new byte[] { (byte)commentPacket.Length },
+    body: commentPacket);
+var finalAudioPage = CreateOggPage(
+    headerType: 0x04,
+    serialNumber: 77,
+    sequenceNumber: 2,
+    lacingValues: new byte[] { (byte)audioPacket.Length },
+    body: audioPacket);
+FlacVorbisComments? observedComments = null;
+using (var source = new FragmentedStream(identificationPage.Concat(audioPage).Concat(finalAudioPage).ToArray()))
+using (var nativeFlac = await OggFlacStream.CreateAsync(source, value => observedComments = value))
+using (var output = new MemoryStream())
+{
+    nativeFlac.CopyTo(output);
+    Check(
+        output.ToArray().SequenceEqual(identificationBytes[9..].Concat(commentPacket).Concat(audioPacket)),
+        "Ogg-FLAC to native FLAC stream bridge");
+    Check(observedComments?.Track == new TrackInfo("Fragma", "You Are Alive"), "Ogg-FLAC metadata callback");
+}
+
+// Radio servers can publish new comments by beginning another logical Ogg
+// stream. The next identification packet must remain available to a fresh FLAC
+// decoder instead of being consumed by the preceding stream.
+var unterminatedFirstAudioPage = CreateOggPage(
+    headerType: 0,
+    serialNumber: 77,
+    sequenceNumber: 2,
+    lacingValues: new byte[] { (byte)audioPacket.Length },
+    body: audioPacket);
+var secondIdentificationPage = CreateOggPage(
+    headerType: 0x02,
+    serialNumber: 88,
+    sequenceNumber: 0,
+    lacingValues: new byte[] { (byte)identificationBytes.Length },
+    body: identificationBytes);
+var secondCommentPage = CreateOggPage(
+    headerType: 0,
+    serialNumber: 88,
+    sequenceNumber: 1,
+    lacingValues: new byte[] { (byte)commentPacket.Length },
+    body: commentPacket);
+var secondFinalPage = CreateOggPage(
+    headerType: 0x04,
+    serialNumber: 88,
+    sequenceNumber: 2,
+    lacingValues: new byte[] { (byte)audioPacket.Length },
+    body: audioPacket);
+using (var source = new FragmentedStream(
+           identificationPage.Concat(audioPage).Concat(unterminatedFirstAudioPage)
+               .Concat(secondIdentificationPage).Concat(secondCommentPage).Concat(secondFinalPage).ToArray()))
+{
+    var packets = new OggPacketReader(new OggPageReader(source));
+    using var firstChain = await OggFlacStream.CreateNextAsync(packets);
+    if (firstChain == null) throw new Exception("Failed: first chained Ogg-FLAC stream exists");
+    using var firstOutput = new MemoryStream();
+    firstChain.CopyTo(firstOutput);
+    using var secondChain = await OggFlacStream.CreateNextAsync(packets);
+    if (secondChain == null) throw new Exception("Failed: second chained Ogg-FLAC stream exists");
+    using var secondOutput = new MemoryStream();
+    secondChain.CopyTo(secondOutput);
+    Check(firstChain.Identification.StreamInfo.SampleRate == 44100, "first chained FLAC identification");
+    Check(secondChain.Identification.StreamInfo.SampleRate == 44100, "second chained FLAC identification");
+    Check(await OggFlacStream.CreateNextAsync(packets) == null, "chained Ogg-FLAC clean EOF");
+}
+
+using (var source = new FragmentedStream(identificationPage.Concat(audioPage).ToArray()))
+{
+    var probe = await StationProbe.DetectAsync(source);
+    Check(probe.StreamType == StationStreamType.OggFlac, "probe detects Ogg-FLAC");
+}
+using (var source = new FragmentedStream(bytes))
+{
+    var probe = await StationProbe.DetectAsync(source, "Test MP3");
+    Check(probe.StreamType == StationStreamType.Mp3 && probe.StationName == "Test MP3", "probe detects MP3 and retains station name");
+}
+
+// Pass a captured .oga file as the first command-line argument to exercise the
+// complete Ogg demuxer -> native FLAC bridge -> managed decoder pipeline.
+if (args.Length > 0)
+{
+    await using var source = File.OpenRead(args[0]);
+    FlacVorbisComments? realComments = null;
+    using var nativeFlac = await OggFlacStream.CreateAsync(source, value => realComments = value);
+    using var decoder = new FlacDecoder(
+        nativeFlac,
+        new FlacDecoder.Options { ValidateOutputHash = false });
+    Check(decoder.SampleRate == 44100, "real FLAC sample rate");
+    Check(decoder.ChannelCount == 2, "real FLAC channels");
+
+    var decodedFrames = 0;
+    var decodedBytes = 0;
+    while (decodedFrames < 10 && decoder.DecodeFrame())
+    {
+        decodedFrames++;
+        decodedBytes += decoder.BufferByteCount;
+    }
+
+    Check(decodedFrames == 10 && decodedBytes > 0, "real FLAC frame decoding");
+    Check(realComments?.Track is { Title.Length: > 0 }, "real FLAC title metadata");
+    Console.WriteLine($"Passed: decoded {decodedFrames} real FLAC frames ({decodedBytes} PCM bytes).");
+}
+
 var policy = new PlaybackPolicy();
 Check(policy.Update(true, false, false, true, false) == PlaybackAction.None, "Mount-only login is quiet");
 Check(policy.Update(true, true, false, true, false) == PlaybackAction.Play, "Mount autoplay");
@@ -175,11 +383,34 @@ transitionMusic.Update(true);
 transitionMusic.Update(false);
 Check(!transitionMuted, "Manual stop bypasses dismount hold");
 Console.WriteLine("Passed: dismount fade envelope and delayed game music restoration.");
+Console.WriteLine("Passed: Ogg page parsing and cross-page packet assembly.");
+Console.WriteLine("Passed: Ogg-FLAC identification and STREAMINFO parsing.");
+Console.WriteLine("Passed: Ogg-FLAC to native FLAC stream bridge.");
+Console.WriteLine("Passed: station probe detects MP3 and Ogg-FLAC.");
 Console.WriteLine("Passed: ICY framing and metadata, playback policy, fragmented MP3 frames, position, EOF, truncation, and stalled-read cancellation, music ownership/restoration, user overrides, and restoration retry.");
 
 static void Check(bool condition, string name)
 {
     if (!condition) throw new Exception($"Failed: {name}");
+}
+
+static byte[] CreateOggPage(
+    byte headerType,
+    uint serialNumber,
+    uint sequenceNumber,
+    byte[] lacingValues,
+    byte[] body)
+{
+    var bytes = new byte[27 + lacingValues.Length + body.Length];
+    "OggS"u8.CopyTo(bytes);
+    bytes[4] = 0;
+    bytes[5] = headerType;
+    System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(14, 4), serialNumber);
+    System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(bytes.AsSpan(18, 4), sequenceNumber);
+    bytes[26] = checked((byte)lacingValues.Length);
+    lacingValues.CopyTo(bytes, 27);
+    body.CopyTo(bytes, 27 + lacingValues.Length);
+    return bytes;
 }
 
 sealed class FragmentedStream(byte[] bytes) : MemoryStream(bytes)

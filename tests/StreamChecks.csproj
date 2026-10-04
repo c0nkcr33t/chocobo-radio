@@ -8,13 +8,22 @@
   <ItemGroup>
     <Compile Include="../Audio/CancellableReadStream.cs" Link="CancellableReadStream.cs" />
     <Compile Include="../Audio/GameMusicController.cs" Link="GameMusicController.cs" />
+    <Compile Include="../Audio/Flac/FlacStreamInfo.cs" Link="FlacStreamInfo.cs" />
     <Compile Include="../Audio/IcyAudioStream.cs" Link="IcyAudioStream.cs" />
+    <Compile Include="../Audio/Ogg/OggPage.cs" Link="OggPage.cs" />
+    <Compile Include="../Audio/Ogg/OggPageReader.cs" Link="OggPageReader.cs" />
+    <Compile Include="../Audio/Ogg/OggPacket.cs" Link="OggPacket.cs" />
+    <Compile Include="../Audio/Ogg/OggPacketReader.cs" Link="OggPacketReader.cs" />
+    <Compile Include="../Audio/Flac/OggFlacIdentification.cs" Link="OggFlacIdentification.cs" />
+    <Compile Include="../Audio/Flac/OggFlacStream.cs" Link="OggFlacStream.cs" />
+    <Compile Include="../Audio/Flac/FlacVorbisComments.cs" Link="FlacVorbisComments.cs" />
     <Compile Include="../Audio/TrackInfo.cs" Link="TrackInfo.cs" />
     <Compile Include="../Audio/DismountTransition.cs" Link="DismountTransition.cs" />
     <Compile Include="../Audio/PlaybackPolicy.cs" Link="PlaybackPolicy.cs" />
     <Compile Include="../Audio/RadioStreamStatistics.cs" Link="RadioStreamStatistics.cs" />
     <Compile Include="../Audio/StationProbe.cs" Link="StationProbe.cs" />
     <Compile Include="../Audio/StationStreamType.cs" Link="StationStreamType.cs" />
+    <Compile Include="../ThirdParty/SimpleFlac/FlacDecoder.cs" Link="SimpleFlac/FlacDecoder.cs" />
     <PackageReference Include="NAudio.Core" Version="2.2.1" />
   </ItemGroup>
 </Project>

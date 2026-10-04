@@ -53,10 +53,26 @@ internal static class StationProbe
         using var replay = new PrefixStream(prefix, audio);
 
         if (prefix.AsSpan().SequenceEqual("OggS"u8))
-            throw new InvalidDataException("This version supports direct MP3 streams only.");
+        {
+            var packets = new OggPacketReader(new OggPageReader(replay));
+            var first = await packets.ReadAsync(token).ConfigureAwait(false)
+                ?? throw new InvalidDataException("The Ogg stream contained no packets.");
+            var identification = OggFlacIdentification.Parse(first);
+
+            if (identification.HeaderPacketCount > 0)
+            {
+                var commentsPacket = await packets.ReadAsync(token).ConfigureAwait(false)
+                    ?? throw new InvalidDataException("Ogg-FLAC stream ended before its metadata headers.");
+                var comments = FlacVorbisComments.Parse(commentsPacket.Data);
+                stationName ??= CleanText(comments.StationName);
+                if (stationName?.Length == 0) stationName = null;
+            }
+
+            return new StationProbeResult(StationStreamType.OggFlac, stationName);
+        }
 
         var frame = Mp3Frame.LoadFromStream(replay)
-            ?? throw new InvalidDataException("Stream is not MP3.");
+            ?? throw new InvalidDataException("Stream is neither MP3 nor Ogg-FLAC.");
         return new StationProbeResult(StationStreamType.Mp3, stationName);
     }
 

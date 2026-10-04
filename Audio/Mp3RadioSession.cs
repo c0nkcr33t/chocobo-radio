@@ -156,6 +156,7 @@ internal sealed class Mp3RadioSession : IRadioSession
         }
         catch (Exception ex)
         {
+            if (!stopped) Plugin.Log.Error(ex, "Chocobo Radio: MP3 playback failed for {Uri}", uri);
             status = stopped ? "Stopped" : $"Radio error: {ex.Message}";
         }
         finally

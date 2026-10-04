@@ -49,10 +49,16 @@ internal sealed class RadioPlayer : IDisposable
         if (!Uri.TryCreate(station.Url, UriKind.Absolute, out var uri) ||
             (uri.Scheme != "https" && uri.Scheme != "http"))
         {
-            status = "Enter a direct HTTP or HTTPS MP3 stream URL.";
+            status = "Enter a direct HTTP or HTTPS audio stream URL.";
             return;
         }
-        session = new Mp3RadioSession(uri, station.Name, gain);
+        session = station.StreamType switch
+        {
+            StationStreamType.OggFlac => new OggFlacRadioSession(uri, station.Name, gain),
+            StationStreamType.Mp3 => new Mp3RadioSession(uri, station.Name, gain),
+            _ => null,
+        };
+        if (session == null) status = "Inspect this station or select its stream format first.";
     }
 
     public void SuspendForRemount()

@@ -3,7 +3,8 @@ using System.IO;
 
 namespace ChocoboRadio;
 
-// Input is already cancellable. Strip ICY blocks before the MP3 parser sees them.
+// Input is already cancellable. Strip ICY blocks before a compressed-audio
+// parser sees them.
 // Position counts audio bytes only; the parser requires it even on non-seekable input.
 internal sealed class IcyAudioStream : Stream
 {

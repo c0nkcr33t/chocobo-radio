@@ -438,6 +438,19 @@ internal sealed class MainWindow : Window, IDisposable
         ImGui.TextUnformatted("Name");
         ImGui.SetNextItemWidth(-1);
         ImGui.InputText("##StationName", ref editName, 256);
+        ImGui.TextUnformatted("Stream format");
+        var formatLabel = editStreamType switch
+        {
+            StationStreamType.Mp3 => "MP3",
+            StationStreamType.OggFlac => "Ogg / FLAC",
+            _ => "Choose format",
+        };
+        if (ImGui.BeginCombo("##StationFormat", formatLabel))
+        {
+            if (ImGui.Selectable("MP3", editStreamType == StationStreamType.Mp3)) editStreamType = StationStreamType.Mp3;
+            if (ImGui.Selectable("Ogg / FLAC", editStreamType == StationStreamType.OggFlac)) editStreamType = StationStreamType.OggFlac;
+            ImGui.EndCombo();
+        }
         ImGui.TextUnformatted("Direct stream URL");
         ImGui.SetNextItemWidth(-1);
         if (ImGui.InputText("##StationUrl", ref editUrl, 2048))
@@ -521,12 +534,11 @@ internal sealed class MainWindow : Window, IDisposable
                 if (shouldSave && Uri.TryCreate(editUrl.Trim(), UriKind.Absolute, out var uri)) SaveStation(uri);
             }
         }
-        catch (OperationCanceledException) { editMessage = "Stream inspection timed out or was cancelled. You can save again to use MP3."; }
+        catch (OperationCanceledException) { editMessage = "Stream inspection timed out or was cancelled. Select a format manually."; }
         catch (Exception ex)
         {
             inspectedUrl = probeUrl;
-            editStreamType = StationStreamType.Mp3;
-            editMessage = $"Could not verify the stream: {ex.Message} Save again to use MP3 anyway.";
+            editMessage = $"Could not identify the stream: {ex.Message} Select a format manually and save again.";
         }
         finally
         {
@@ -577,7 +589,7 @@ internal sealed class MainWindow : Window, IDisposable
     }
 
     private static string FormatName(StationStreamType type)
-        => "MP3";
+        => type == StationStreamType.OggFlac ? "Ogg / FLAC" : "MP3";
 
     public void Dispose()
     {
