@@ -17,6 +17,9 @@ internal sealed class RadioPlayer : IDisposable
     // Hold the mute briefly after dismount so the game's outgoing mount theme stays hidden.
     public bool SuppressGameMusic => IsPlaying || (IsSuspended && session!.HoldGameMusic);
     public bool IsRunning => session is { Finished: false };
+    // A failed session still represents an attempt to listen. Station changes
+    // should continue playback from the next selection until Stop clears it.
+    public bool HasPlaybackIntent => session != null;
 
     public void SetVolume(float value)
     {

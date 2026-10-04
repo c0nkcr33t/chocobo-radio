@@ -352,9 +352,10 @@ internal sealed class MainWindow : Window, IDisposable
 
     private void Tune(int index)
     {
+        var continuePlayback = plugin.Player.HasPlaybackIntent && !plugin.Player.IsSuspended;
         plugin.Config.SelectedStation = index;
         plugin.Config.Save();
-        if (plugin.Player.IsRunning && !plugin.Player.IsSuspended) plugin.Player.Play(plugin.Config);
+        if (continuePlayback) plugin.Player.Play(plugin.Config);
     }
 
     private void ChangeStation(int direction)
