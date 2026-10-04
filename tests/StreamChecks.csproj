@@ -12,6 +12,7 @@
     <Compile Include="../Audio/TrackInfo.cs" Link="TrackInfo.cs" />
     <Compile Include="../Audio/DismountTransition.cs" Link="DismountTransition.cs" />
     <Compile Include="../Audio/PlaybackPolicy.cs" Link="PlaybackPolicy.cs" />
+    <Compile Include="../Audio/RadioStreamStatistics.cs" Link="RadioStreamStatistics.cs" />
     <Compile Include="../Audio/StationProbe.cs" Link="StationProbe.cs" />
     <Compile Include="../Audio/StationStreamType.cs" Link="StationStreamType.cs" />
     <PackageReference Include="NAudio.Core" Version="2.2.1" />

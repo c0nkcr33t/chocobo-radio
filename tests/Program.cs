@@ -129,6 +129,17 @@ Check(TrackInfo.FromMetadata(System.Text.Encoding.UTF8.GetBytes("StreamUrl='some
 Check(TrackInfo.FromMetadata(System.Text.Encoding.Latin1.GetBytes("StreamTitle='Beyoncé - Song';"))?.Artist == "Beyoncé", "Legacy metadata encoding");
 Check(TrackInfo.FromMetadata(System.Text.Encoding.UTF8.GetBytes("StreamTitle='DJ's evening show';"))?.Title == "DJ's evening show", "Unstructured title with apostrophe");
 
+var health = new StreamHealthMeter();
+Check(health.Update(1.2, true) == StreamHealth.Healthy, "healthy stream buffer");
+Check(health.Update(0.6, true) == StreamHealth.Healthy, "health hysteresis avoids early warning flicker");
+Check(health.Update(0.4, true) == StreamHealth.Low, "low stream buffer");
+Check(health.Update(0.1, true) == StreamHealth.Starving, "starving stream buffer");
+Check(health.Update(0.5, true) == StreamHealth.Low, "starving stream recovers through low state");
+Check(health.Update(1.1, true) == StreamHealth.Healthy, "stream health fully recovers");
+Check(health.Update(2, false) == StreamHealth.Inactive, "inactive stream health");
+var capturedStatistics = new RadioStreamStatistics("MP3", 192000, 44100, 2, 1.5, 1000);
+Check(Math.Abs(capturedStatistics.EstimatedBufferedSeconds(1500) - 1.0) < 0.001, "buffer estimate accounts for playback time");
+
 var policy = new PlaybackPolicy();
 Check(policy.Update(true, false, false, true, false) == PlaybackAction.None, "Mount-only login is quiet");
 Check(policy.Update(true, true, false, true, false) == PlaybackAction.Play, "Mount autoplay");

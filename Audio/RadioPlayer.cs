@@ -13,6 +13,7 @@ internal sealed class RadioPlayer : IDisposable
     public string Status => IsSuspended && session!.IsFading ? "Fading out after dismount…" : IsSuspended ? "Silent — keeping the stream ready for a resume (up to 60 seconds)." : session?.Status ?? status;
     public TrackInfo Track => session?.Track ?? TrackInfo.Empty;
     public string PlayingStation => session?.StationName ?? "";
+    public RadioStreamStatistics? Statistics => session?.Statistics;
     public bool IsPlaying => session is { Started: true, Finished: false, Suspended: false };
     // Hold the mute briefly after dismount so the game's outgoing mount theme stays hidden.
     public bool SuppressGameMusic => IsPlaying || (IsSuspended && session!.HoldGameMusic);

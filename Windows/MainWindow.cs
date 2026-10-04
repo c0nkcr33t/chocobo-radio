@@ -36,6 +36,7 @@ internal sealed class MainWindow : Window, IDisposable
     private readonly IFontHandle? displayFont;
     private readonly IFontHandle? titleFont;
     private readonly IFontHandle? stationFont;
+    private readonly StreamHealthMeter streamHealth = new();
     private const string FaceplateTitle = "CHOCOBO RADIO";
     private float headerHeight;
     private float stationHeight;
@@ -319,10 +320,38 @@ internal sealed class MainWindow : Window, IDisposable
         var title = !plugin.Player.IsRunning || plugin.Player.IsSuspended ? "" : track.Display.Length > 0 ? (track.Artist.Length > 0 ? $"{track.Artist} - {track.Title}" : track.Title) : "Waiting for station track information…";
         var left = origin + new Vector2(10, 6);
         var right = origin + new Vector2(width - 10, height - 4);
-        draw.PushClipRect(left, right, true);
+        var statistics = plugin.Player.Statistics;
+        var statisticsText = statistics == null
+            ? ""
+            : statistics.BitRate > 0 ? $"{statistics.Codec} {statistics.BitRate / 1000}k" : statistics.Codec;
+        var bufferedSeconds = statistics?.EstimatedBufferedSeconds(Environment.TickCount64) ?? 0;
+        var health = streamHealth.Update(bufferedSeconds, plugin.Player.IsPlaying);
+        var statisticsWidth = 0f;
+        using (stationFont?.Push()) statisticsWidth = ImGui.CalcTextSize(statisticsText).X;
+        var lightRadius = stationHeight * 0.22f;
+        var statisticsGap = statisticsText.Length > 0 ? lightRadius * 2 + 6 : 0;
+        var statisticsLeft = right.X - statisticsWidth - statisticsGap;
+        draw.PushClipRect(left, new Vector2(Math.Max(left.X, statisticsLeft - 8), right.Y), true);
         using (station.All(c => c >= ' ' && c <= '~') ? stationFont?.Push() : null)
             draw.AddText(left, ImGui.GetColorU32(Muted), station);
+        draw.PopClipRect();
+        if (statisticsText.Length > 0)
+        {
+            var light = health switch
+            {
+                StreamHealth.Healthy => new Vector4(0.30f, 0.90f, 0.45f, 1),
+                StreamHealth.Low => new Vector4(1.00f, 0.72f, 0.20f, 1),
+                StreamHealth.Starving => new Vector4(1.00f, 0.25f, 0.20f,
+                    (float)(0.45 + 0.55 * (0.5 + 0.5 * Math.Sin(ImGui.GetTime() * Math.PI * 4)))),
+                _ => Muted,
+            };
+            var lightCenter = new Vector2(statisticsLeft + lightRadius, left.Y + stationHeight / 2);
+            draw.AddCircleFilled(lightCenter, lightRadius, ImGui.GetColorU32(light));
+            using (stationFont?.Push())
+                draw.AddText(new Vector2(statisticsLeft + statisticsGap, left.Y), ImGui.GetColorU32(Muted), statisticsText);
+        }
         var line = left + new Vector2(0, stationHeight + 3);
+        draw.PushClipRect(line, right, true);
         if (scrollingText != title) { scrollingText = title; scrollStarted = ImGui.GetTime(); }
         // Bundled display font uses the atlas default glyph range: keep international
         // metadata readable by falling back to the user's normal UI font.
@@ -347,7 +376,15 @@ internal sealed class MainWindow : Window, IDisposable
         draw.AddText(line - new Vector2(offset, 0), ImGui.GetColorU32(Accent), title);
         draw.PopClipRect();
         ImGui.Dummy(new Vector2(width, height));
-        if (ImGui.IsItemHovered()) ImGui.SetTooltip(track.Display + "\n" + plugin.Player.Status);
+        if (ImGui.IsItemHovered())
+        {
+            var details = statistics is { BitRate: > 0 }
+                ? $"{statistics.Codec} • {statistics.BitRate / 1000} kbps • {statistics.SampleRate / 1000.0:0.#} kHz • " +
+                  (statistics.Channels == 1 ? "Mono" : statistics.Channels == 2 ? "Stereo" : $"{statistics.Channels} channels") +
+                  $"\nBuffer: {bufferedSeconds:0.0} seconds"
+                : "Stream details unavailable";
+            ImGui.SetTooltip((track.Display.Length > 0 ? track.Display + "\n" : "") + details + "\n" + plugin.Player.Status);
+        }
     }
 
     private void Tune(int index)

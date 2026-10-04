@@ -24,6 +24,7 @@ internal sealed class Mp3RadioSession : IRadioSession
     private volatile bool suspended;
     private volatile float gain;
     private volatile bool fadeOnSuspend;
+    private volatile RadioStreamStatistics statistics = RadioStreamStatistics.Connecting("MP3");
     private long suspensionStarted;
 
     // Read-only properties;
@@ -31,6 +32,7 @@ internal sealed class Mp3RadioSession : IRadioSession
     public string StationName { get; }
     public TrackInfo Track => track;
     public string Status => status;
+    public RadioStreamStatistics Statistics => statistics;
     public bool Started => started;
     public bool Finished => finished;
     public bool Suspended => suspended;
@@ -127,6 +129,7 @@ internal sealed class Mp3RadioSession : IRadioSession
                     throw new InvalidDataException("Station changed audio format. Press Play / Reconnect.");
                 while (buffer.BufferedDuration.TotalSeconds > 2)
                 {
+                    PublishStatistics(frame, channels, buffer);
                     token.ThrowIfCancellationRequested();
                     if (outputStarted && output.PlaybackState != PlaybackState.Playing)
                         throw new IOException("Audio output stopped. Check your output device and reconnect.");
@@ -134,6 +137,7 @@ internal sealed class Mp3RadioSession : IRadioSession
                 }
                 var count = decoder.DecompressFrame(frame, pcm, 0);
                 buffer.AddSamples(pcm, 0, count);
+                PublishStatistics(frame, channels, buffer);
                 if (!outputStarted && buffer.BufferedDuration.TotalSeconds >= 0.5)
                 {
                     token.ThrowIfCancellationRequested();
@@ -163,6 +167,17 @@ internal sealed class Mp3RadioSession : IRadioSession
                 cancellation.Dispose();
             }
         }
+    }
+
+    private void PublishStatistics(Mp3Frame frame, int channels, BufferedWaveProvider buffer)
+    {
+        statistics = new RadioStreamStatistics(
+            "MP3",
+            frame.BitRate,
+            frame.SampleRate,
+            channels,
+            buffer.BufferedDuration.TotalSeconds,
+            Environment.TickCount64);
     }
 
     public void Dispose()
