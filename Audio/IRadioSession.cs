@@ -8,7 +8,7 @@ internal interface IRadioSession : IDisposable
     string StationName { get; }
     TrackInfo Track { get; }
     string Status { get; }
-    RadioStreamStatistics Statistics { get; }
+    RadioStreamStatistics? Statistics { get; }
 
     bool Started { get; }
     bool Finished { get; }

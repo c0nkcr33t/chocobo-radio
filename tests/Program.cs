@@ -135,6 +135,12 @@ Check(health.Update(1.1, true) == StreamHealth.Healthy, "stream health fully rec
 Check(health.Update(2, false) == StreamHealth.Inactive, "inactive stream health");
 var capturedStatistics = new RadioStreamStatistics("MP3", 192000, 44100, 2, 1.5, 1000);
 Check(Math.Abs(capturedStatistics.EstimatedBufferedSeconds(1500) - 1.0) < 0.001, "buffer estimate accounts for playback time");
+var bitRate = new RollingBitRateMeter(windowSeconds: 5, minimumSeconds: 2, refreshSeconds: 2);
+Check(bitRate.Update(0, 44100, 44100) == 0, "rolling bitrate waits for its measurement interval");
+Check(bitRate.Update(24000, 44100, 44100) == 0, "rolling bitrate gathers enough audio before reporting");
+Check(bitRate.Update(48000, 44100, 44100) == 192000, "rolling bitrate measures compressed bytes per audio second");
+Check(bitRate.Update(96000, 44100, 44100) == 192000, "rolling bitrate remains fixed between refreshes");
+Check(bitRate.Update(144000, 44100, 44100) == 288000, "rolling bitrate changes on its refresh interval");
 
 // Build a complete Ogg page in memory. FragmentedStream limits every async read
 // to three bytes, like a network stream that does not fill requested buffers.

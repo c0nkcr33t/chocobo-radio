@@ -25,6 +25,7 @@ internal sealed class OggFlacRadioSession : IRadioSession
     private volatile float gain;
     private volatile bool fadeOnSuspend;
     private volatile string stationName;
+    private volatile RadioStreamStatistics statistics = RadioStreamStatistics.Connecting("FLAC");
     private long suspensionStarted;
 
     // Read-only properties;
@@ -32,6 +33,7 @@ internal sealed class OggFlacRadioSession : IRadioSession
     public string StationName => stationName;
     public TrackInfo Track => track;
     public string Status => status;
+    public RadioStreamStatistics Statistics => statistics;
     public bool Started => started;
     public bool Finished => finished;
     public bool Suspended => suspended;
@@ -126,6 +128,7 @@ internal sealed class OggFlacRadioSession : IRadioSession
             }
 
             var packets = new OggPacketReader(new OggPageReader(input));
+            var bitRate = new RollingBitRateMeter();
             BufferedWaveProvider? outputBuffer = null;
             WaveOutEvent? output = null;
             WaveFormat? format = null;
@@ -179,6 +182,10 @@ internal sealed class OggFlacRadioSession : IRadioSession
                             started = true;
                             status = $"Playing: {stationName}";
                         }
+                        PublishStatistics(
+                            decoder,
+                            outputBuffer,
+                            bitRate.Update(input.Position, decoder.BufferSampleCount, decoder.SampleRate));
                     }
                 }
             }
@@ -211,6 +218,19 @@ internal sealed class OggFlacRadioSession : IRadioSession
         }
     }
 
+
+    private void PublishStatistics(FlacDecoder decoder, BufferedWaveProvider buffer, int bitRate)
+    {
+        statistics = new RadioStreamStatistics(
+            "FLAC",
+            bitRate,
+            decoder.SampleRate,
+            decoder.ChannelCount,
+            buffer.BufferedDuration.TotalSeconds,
+            Environment.TickCount64,
+            decoder.BitsPerSample
+        );
+    }
 
     public void Dispose()
     {

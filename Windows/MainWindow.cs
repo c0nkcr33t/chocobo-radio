@@ -321,9 +321,12 @@ internal sealed class MainWindow : Window, IDisposable
         var left = origin + new Vector2(10, 6);
         var right = origin + new Vector2(width - 10, height - 4);
         var statistics = plugin.Player.Statistics;
+        var displayedKbps = statistics == null ? 0 : statistics.Codec == "FLAC"
+            ? (int)Math.Round(statistics.BitRate / 10_000.0) * 10
+            : statistics.BitRate / 1000;
         var statisticsText = statistics == null
             ? ""
-            : statistics.BitRate > 0 ? $"{statistics.Codec} {statistics.BitRate / 1000}k" : statistics.Codec;
+            : statistics.BitRate > 0 ? $"{statistics.Codec} {displayedKbps}k" : statistics.Codec;
         var bufferedSeconds = statistics?.EstimatedBufferedSeconds(Environment.TickCount64) ?? 0;
         var health = streamHealth.Update(bufferedSeconds, plugin.Player.IsPlaying);
         var statisticsWidth = 0f;
@@ -381,8 +384,14 @@ internal sealed class MainWindow : Window, IDisposable
             var details = statistics is { BitRate: > 0 }
                 ? $"{statistics.Codec} • {statistics.BitRate / 1000} kbps • {statistics.SampleRate / 1000.0:0.#} kHz • " +
                   (statistics.Channels == 1 ? "Mono" : statistics.Channels == 2 ? "Stereo" : $"{statistics.Channels} channels") +
+                  (statistics.BitsPerSample > 0 ? $" • {statistics.BitsPerSample}-bit" : "") +
                   $"\nBuffer: {bufferedSeconds:0.0} seconds"
-                : "Stream details unavailable";
+                : statistics is { SampleRate: > 0 }
+                    ? $"{statistics.Codec} • {statistics.SampleRate / 1000.0:0.#} kHz • " +
+                      (statistics.Channels == 1 ? "Mono" : statistics.Channels == 2 ? "Stereo" : $"{statistics.Channels} channels") +
+                      (statistics.BitsPerSample > 0 ? $" • {statistics.BitsPerSample}-bit" : "") +
+                      $"\nMeasuring bitrate…\nBuffer: {bufferedSeconds:0.0} seconds"
+                    : "Stream details unavailable";
             ImGui.SetTooltip((track.Display.Length > 0 ? track.Display + "\n" : "") + details + "\n" + plugin.Player.Status);
         }
     }
