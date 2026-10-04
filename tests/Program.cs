@@ -26,6 +26,11 @@ using (var stream = new CancellableReadStream(source, CancellationToken.None))
     try { Mp3Frame.LoadFromStream(stream); throw new Exception("Expected truncated-frame error"); }
     catch (EndOfStreamException) { }
 }
+using (var source = new FragmentedStream(bytes))
+{
+    var probe = await StationProbe.DetectAsync(source, "Test MP3");
+    Check(probe.StreamType == StationStreamType.Mp3 && probe.StationName == "Test MP3", "station probe detects MP3 and retains name");
+}
 using (var cancellation = new CancellationTokenSource())
 using (var source = new StalledStream())
 using (var stream = new CancellableReadStream(source, cancellation.Token))

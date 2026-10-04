@@ -28,7 +28,8 @@ Location first.
 - Open the player with `/chocoboradio`, or mount up. Drag the title to move it;
   **X** hides the player without stopping playback.
 - Click the **antenna icon** for Stations. Choose **Add station**, enter a name
-  and direct HTTP(S) MP3 stream URL, then **Save new station** and **Tune in**.
+  and direct HTTP(S) MP3 stream URL, then save. Chocobo Radio briefly inspects
+  new URLs to verify MP3 audio and retrieve the station name when available.
   Website links, playlist files, AAC, and HLS are not supported.
 - The **power button** toggles standby, stopping audio and blocking autoplay while off.
 - Use **Play/Pause**, previous/next station, and the vertical volume slider.

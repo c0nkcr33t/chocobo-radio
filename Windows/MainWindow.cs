@@ -26,11 +26,13 @@ internal sealed class MainWindow : Window, IDisposable
     private Station? editedStation;
     private string editName = "";
     private string editUrl = "";
+    private StationStreamType editStreamType;
     private string editMessage = "";
     private CancellationTokenSource? lookupCancellation;
-    private Task<string?>? nameLookup;
-    private string lookupUrl = "";
-    private string lookupOriginalName = "";
+    private Task<StationProbeResult>? stationProbe;
+    private string probeUrl = "";
+    private string inspectedUrl = "";
+    private bool saveAfterProbe;
     private readonly IFontHandle? displayFont;
     private readonly IFontHandle? titleFont;
     private readonly IFontHandle? stationFont;
@@ -366,15 +368,17 @@ internal sealed class MainWindow : Window, IDisposable
     private void DrawStations()
     {
         var config = plugin.Config;
-        PollNameLookup();
+        PollStationProbe();
         ImGui.TextColored(Accent, "SAVED STATIONS");
         if (ImGui.Button("Add station"))
         {
-            CancelNameLookup();
+            CancelStationProbe();
             editedStation = null;
             editIndex = -1;
             editName = "New station";
             editUrl = "";
+            editStreamType = StationStreamType.Unknown;
+            inspectedUrl = "";
             editMessage = "";
         }
         if (ImGui.BeginListBox("##StationLibrary", new Vector2(-1, 110)))
@@ -382,11 +386,13 @@ internal sealed class MainWindow : Window, IDisposable
             for (var i = 0; i < config.Stations.Count; i++)
             {
                 if (!ImGui.Selectable($"{config.Stations[i].Name}##saved{i}", editedStation == config.Stations[i])) continue;
-                CancelNameLookup();
+                CancelStationProbe();
                 editIndex = i;
                 editedStation = config.Stations[i];
                 editName = editedStation.Name;
                 editUrl = editedStation.Url;
+                editStreamType = editedStation.StreamType;
+                inspectedUrl = editedStation.Url;
                 editMessage = "";
             }
             ImGui.EndListBox();
@@ -394,35 +400,29 @@ internal sealed class MainWindow : Window, IDisposable
         ImGui.TextUnformatted("Name");
         ImGui.SetNextItemWidth(-1);
         ImGui.InputText("##StationName", ref editName, 256);
-        ImGui.TextUnformatted("MP3 stream URL");
+        ImGui.TextUnformatted("Direct stream URL");
         ImGui.SetNextItemWidth(-1);
-        if (ImGui.InputText("##StationUrl", ref editUrl, 2048)) CancelNameLookup();
-        if (ImGui.IsItemDeactivatedAfterEdit() && (string.IsNullOrWhiteSpace(editName) || editName == "New station"))
-            StartNameLookup();
-        ImGui.BeginDisabled(nameLookup != null);
-        if (ImGui.SmallButton("Find station name")) StartNameLookup();
+        if (ImGui.InputText("##StationUrl", ref editUrl, 2048))
+        {
+            CancelStationProbe();
+            inspectedUrl = "";
+        }
+        if (ImGui.IsItemDeactivatedAfterEdit()) StartStationProbe();
+        ImGui.BeginDisabled(stationProbe != null);
+        if (ImGui.SmallButton("Inspect stream")) StartStationProbe();
         ImGui.EndDisabled();
-        if (nameLookup != null) { ImGui.SameLine(); ImGui.TextUnformatted("Looking up name…"); }
+        if (stationProbe != null) { ImGui.SameLine(); ImGui.TextUnformatted("Inspecting…"); }
         if (ImGui.Button(editedStation == null ? "Save new station" : "Save changes"))
         {
             if (string.IsNullOrWhiteSpace(editName) || !Uri.TryCreate(editUrl.Trim(), UriKind.Absolute, out var uri) ||
-                (uri.Scheme != "https" && uri.Scheme != "http")) editMessage = "Enter a name and a direct HTTP(S) MP3 stream URL.";
-            else
+                (uri.Scheme != "https" && uri.Scheme != "http")) editMessage = "Enter a name and a direct HTTP(S) audio stream URL.";
+            else if (stationProbe != null)
             {
-                CancelNameLookup();
-                if (editedStation == null)
-                {
-                    editedStation = new Station();
-                    config.Stations.Add(editedStation);
-                    editIndex = config.Stations.Count - 1;
-                }
-                var urlChanged = editedStation.Url != uri.AbsoluteUri;
-                editedStation.Name = editName.Trim();
-                editedStation.Url = uri.AbsoluteUri;
-                config.Save();
-                if (urlChanged && config.SelectedStation == editIndex && plugin.Player.IsRunning && !plugin.Player.IsSuspended) plugin.Player.Play(config);
-                editMessage = "Saved.";
+                saveAfterProbe = true;
+                editMessage = "Inspecting stream before saving…";
             }
+            else if (inspectedUrl != editUrl.Trim()) StartStationProbe(saveAfter: true);
+            else SaveStation(uri);
         }
         if (editedStation != null)
         {
@@ -437,7 +437,7 @@ internal sealed class MainWindow : Window, IDisposable
             if (ImGui.Button("Delete station") && editedStation != null)
             {
                 if (config.SelectedStation == editIndex) plugin.Player.Stop();
-                CancelNameLookup();
+                CancelStationProbe();
                 config.Stations.RemoveAt(editIndex);
                 if (config.SelectedStation > editIndex) config.SelectedStation--;
                 config.SelectedStation = Math.Clamp(config.SelectedStation, 0, Math.Max(0, config.Stations.Count - 1));
@@ -454,46 +454,96 @@ internal sealed class MainWindow : Window, IDisposable
         ImGui.TextWrapped(editMessage);
     }
 
-    private void StartNameLookup()
+    private void StartStationProbe(bool saveAfter = false)
     {
-        CancelNameLookup();
-        lookupUrl = editUrl.Trim();
-        lookupOriginalName = editName;
+        CancelStationProbe();
+        probeUrl = editUrl.Trim();
+        saveAfterProbe = saveAfter;
         lookupCancellation = new CancellationTokenSource();
-        nameLookup = StationNameLookup.FindAsync(lookupUrl, lookupCancellation.Token);
+        stationProbe = StationProbe.InspectAsync(probeUrl, lookupCancellation.Token);
+        editMessage = saveAfter ? "Inspecting stream before saving…" : "Inspecting stream…";
     }
 
-    private void PollNameLookup()
+    private void PollStationProbe()
     {
-        if (nameLookup is not { IsCompleted: true }) return;
+        if (stationProbe is not { IsCompleted: true }) return;
+        var shouldSave = saveAfterProbe;
         try
         {
-            var name = nameLookup.GetAwaiter().GetResult();
-            if (editUrl.Trim() == lookupUrl && editName == lookupOriginalName)
+            var result = stationProbe.GetAwaiter().GetResult();
+            if (editUrl.Trim() == probeUrl)
             {
-                if (name != null) { editName = name; editMessage = "Name found. Save to keep it."; }
-                else editMessage = "This station does not send a name. Enter one manually.";
+                editStreamType = result.StreamType;
+                if (result.StationName != null &&
+                    (string.IsNullOrWhiteSpace(editName) || editName == "New station"))
+                    editName = result.StationName;
+                inspectedUrl = probeUrl;
+                editMessage = $"Detected {FormatName(result.StreamType)}." +
+                              (result.StationName == null ? " This station does not send a name." : " Station name found.");
+                if (shouldSave && Uri.TryCreate(editUrl.Trim(), UriKind.Absolute, out var uri)) SaveStation(uri);
             }
         }
-        catch (OperationCanceledException) { editMessage = "Name lookup timed out or was cancelled. You can enter a name manually."; }
-        catch (Exception) { editMessage = "Could not read the station name. Check the URL or enter a name manually."; }
-        finally { CancelNameLookup(); }
+        catch (OperationCanceledException) { editMessage = "Stream inspection timed out or was cancelled. You can save again to use MP3."; }
+        catch (Exception ex)
+        {
+            inspectedUrl = probeUrl;
+            editStreamType = StationStreamType.Mp3;
+            editMessage = $"Could not verify the stream: {ex.Message} Save again to use MP3 anyway.";
+        }
+        finally
+        {
+            lookupCancellation?.Dispose();
+            lookupCancellation = null;
+            stationProbe = null;
+            saveAfterProbe = false;
+        }
     }
 
-    private void CancelNameLookup()
+    private void CancelStationProbe()
     {
         lookupCancellation?.Cancel();
         lookupCancellation?.Dispose();
         lookupCancellation = null;
         // Observe eventual failures from requests superseded by another edit.
-        if (nameLookup != null)
-            _ = nameLookup.ContinueWith(task => { _ = task.Exception; }, TaskContinuationOptions.OnlyOnFaulted);
-        nameLookup = null;
+        if (stationProbe != null)
+            _ = stationProbe.ContinueWith(task => { _ = task.Exception; }, TaskContinuationOptions.OnlyOnFaulted);
+        stationProbe = null;
+        saveAfterProbe = false;
     }
+
+    private void SaveStation(Uri uri)
+    {
+        if (editStreamType == StationStreamType.Unknown)
+        {
+            editMessage = "Select a stream format before saving.";
+            return;
+        }
+
+        var config = plugin.Config;
+        CancelStationProbe();
+        if (editedStation == null)
+        {
+            editedStation = new Station();
+            config.Stations.Add(editedStation);
+            editIndex = config.Stations.Count - 1;
+        }
+        var connectionChanged = editedStation.Url != uri.AbsoluteUri || editedStation.StreamType != editStreamType;
+        editedStation.Name = editName.Trim();
+        editedStation.Url = uri.AbsoluteUri;
+        editedStation.StreamType = editStreamType;
+        inspectedUrl = editUrl.Trim();
+        config.Save();
+        if (connectionChanged && config.SelectedStation == editIndex && plugin.Player.IsRunning && !plugin.Player.IsSuspended)
+            plugin.Player.Play(config);
+        editMessage = $"Saved as {FormatName(editStreamType)}.";
+    }
+
+    private static string FormatName(StationStreamType type)
+        => "MP3";
 
     public void Dispose()
     {
-        CancelNameLookup();
+        CancelStationProbe();
         displayFont?.Dispose();
         titleFont?.Dispose();
         stationFont?.Dispose();
