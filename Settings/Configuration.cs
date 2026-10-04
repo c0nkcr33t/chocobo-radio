@@ -11,6 +11,7 @@ public sealed class Station
     public string Name { get; set; } = "New station";
     public string Url { get; set; } = "";
     public StationStreamType StreamType { get; set; }
+    public string DirectoryId { get; set; } = "";
 }
 
 [Serializable]

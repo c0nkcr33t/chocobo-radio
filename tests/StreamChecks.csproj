@@ -23,6 +23,7 @@
     <Compile Include="../Audio/RadioStreamStatistics.cs" Link="RadioStreamStatistics.cs" />
     <Compile Include="../Audio/StationProbe.cs" Link="StationProbe.cs" />
     <Compile Include="../Audio/StationStreamType.cs" Link="StationStreamType.cs" />
+    <Compile Include="../Directory/RadioBrowserClient.cs" Link="RadioBrowserClient.cs" />
     <Compile Include="../ThirdParty/SimpleFlac/FlacDecoder.cs" Link="SimpleFlac/FlacDecoder.cs" />
     <PackageReference Include="NAudio.Core" Version="2.2.1" />
   </ItemGroup>

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Numerics;
 using System.Linq;
 using Dalamud.Interface;
@@ -27,12 +28,23 @@ internal sealed class MainWindow : Window, IDisposable
     private string editName = "";
     private string editUrl = "";
     private StationStreamType editStreamType;
+    private string editDirectoryId = "";
     private string editMessage = "";
     private CancellationTokenSource? lookupCancellation;
     private Task<StationProbeResult>? stationProbe;
     private string probeUrl = "";
     private string inspectedUrl = "";
     private bool saveAfterProbe;
+    private enum StationView { Saved, Browse }
+    private StationView stationView;
+    private readonly RadioBrowserClient radioBrowser = new();
+    private CancellationTokenSource? browserCancellation;
+    private Task<IReadOnlyList<RadioBrowserStation>>? browserSearch;
+    private IReadOnlyList<RadioBrowserStation> browserResults = [];
+    private RadioBrowserStation? browserSelection;
+    private string browserQuery = "";
+    private string browserMessage = "";
+    private RadioBrowserSearchField browserField = RadioBrowserSearchField.Name;
     private readonly IFontHandle? displayFont;
     private readonly IFontHandle? titleFont;
     private readonly IFontHandle? stationFont;
@@ -416,6 +428,20 @@ internal sealed class MainWindow : Window, IDisposable
     {
         var config = plugin.Config;
         PollStationProbe();
+        PollBrowserSearch();
+        if (ImGui.Button("Saved")) stationView = StationView.Saved;
+        ImGui.SameLine();
+        if (ImGui.Button("Browse") && stationView != StationView.Browse)
+        {
+            stationView = StationView.Browse;
+            if (browserResults.Count == 0 && browserSearch == null) StartBrowserSearch();
+        }
+        ImGui.Separator();
+        if (stationView == StationView.Browse)
+        {
+            DrawStationBrowser();
+            return;
+        }
         ImGui.TextColored(Accent, "SAVED STATIONS");
         if (ImGui.Button("Add station"))
         {
@@ -425,6 +451,7 @@ internal sealed class MainWindow : Window, IDisposable
             editName = "New station";
             editUrl = "";
             editStreamType = StationStreamType.Unknown;
+            editDirectoryId = "";
             inspectedUrl = "";
             editMessage = "";
         }
@@ -439,6 +466,7 @@ internal sealed class MainWindow : Window, IDisposable
                 editName = editedStation.Name;
                 editUrl = editedStation.Url;
                 editStreamType = editedStation.StreamType;
+                editDirectoryId = editedStation.DirectoryId ?? "";
                 inspectedUrl = editedStation.Url;
                 editMessage = "";
             }
@@ -466,6 +494,7 @@ internal sealed class MainWindow : Window, IDisposable
         {
             CancelStationProbe();
             inspectedUrl = "";
+            editDirectoryId = "";
         }
         if (ImGui.IsItemDeactivatedAfterEdit()) StartStationProbe();
         ImGui.BeginDisabled(stationProbe != null);
@@ -512,6 +541,121 @@ internal sealed class MainWindow : Window, IDisposable
             ImGui.EndPopup();
         }
         ImGui.TextWrapped(editMessage);
+    }
+
+    private void DrawStationBrowser()
+    {
+        ImGui.TextColored(Accent, "STATION BROWSER");
+        ImGui.SetNextItemWidth(-105);
+        var submit = ImGui.InputText("##BrowserQuery", ref browserQuery, 128, ImGuiInputTextFlags.EnterReturnsTrue);
+        ImGui.SameLine();
+        if (ImGui.Button("Search", new Vector2(100, 0))) submit = true;
+        var fieldLabel = browserField == RadioBrowserSearchField.Name ? "Station name" : "Genre / tag";
+        ImGui.SetNextItemWidth(130);
+        if (ImGui.BeginCombo("##BrowserField", fieldLabel))
+        {
+            if (ImGui.Selectable("Station name", browserField == RadioBrowserSearchField.Name)) browserField = RadioBrowserSearchField.Name;
+            if (ImGui.Selectable("Genre / tag", browserField == RadioBrowserSearchField.Tag)) browserField = RadioBrowserSearchField.Tag;
+            ImGui.EndCombo();
+        }
+        ImGui.SameLine();
+        ImGui.TextDisabled(browserQuery.Length == 0 ? "Popular stations" : "Healthy MP3 and Ogg/FLAC only");
+        if (submit) StartBrowserSearch();
+
+        if (browserSearch != null)
+        {
+            ImGui.TextUnformatted("Searching Radio Browser…");
+            return;
+        }
+
+        if (ImGui.BeginListBox("##BrowserResults", new Vector2(-1, 145)))
+        {
+            foreach (var station in browserResults)
+            {
+                var rate = station.BitRate > 0 ? $" {station.BitRate}k" : "";
+                var selected = browserSelection?.StationUuid == station.StationUuid;
+                if (ImGui.Selectable($"{station.Name}  [{station.Codec}{rate}]##{station.StationUuid}", selected))
+                    browserSelection = station;
+                if (ImGui.IsItemHovered())
+                {
+                    var location = station.CountryCode.Length > 0 ? station.CountryCode : "Unknown country";
+                    var tags = station.Tags.Length > 0 ? station.Tags : "No genre tags";
+                    ImGui.SetTooltip($"{location} • {station.Language}\n{tags}\n{station.Votes} votes • {station.ClickCount} recent clicks");
+                }
+            }
+            ImGui.EndListBox();
+        }
+
+        if (browserSelection != null)
+        {
+            var station = browserSelection;
+            var detail = string.Join(" • ", new[]
+            {
+                station.CountryCode,
+                station.Language,
+                station.Tags.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).FirstOrDefault() ?? "",
+            }.Where(value => value.Length > 0));
+            ImGui.TextWrapped(detail.Length > 0 ? detail : "No additional station details.");
+            var alreadySaved = plugin.Config.Stations.Any(saved => saved.Url == station.Url);
+            ImGui.BeginDisabled(alreadySaved);
+            if (ImGui.Button("Add to saved stations")) AddBrowserStation(station);
+            ImGui.EndDisabled();
+            if (alreadySaved) { ImGui.SameLine(); ImGui.TextDisabled("Already saved"); }
+        }
+        else if (browserResults.Count == 0)
+        {
+            ImGui.TextWrapped(browserMessage.Length > 0 ? browserMessage : "No compatible stations found.");
+        }
+        if (browserMessage.Length > 0 && browserResults.Count > 0) ImGui.TextWrapped(browserMessage);
+    }
+
+    private void StartBrowserSearch()
+    {
+        browserCancellation?.Cancel();
+        browserCancellation?.Dispose();
+        browserCancellation = new CancellationTokenSource();
+        browserSelection = null;
+        browserMessage = "";
+        browserSearch = radioBrowser.SearchAsync(browserQuery, browserField, browserCancellation.Token);
+    }
+
+    private void PollBrowserSearch()
+    {
+        if (browserSearch is not { IsCompleted: true }) return;
+        try
+        {
+            browserResults = browserSearch.GetAwaiter().GetResult();
+            browserMessage = browserResults.Count == 0
+                ? "No healthy stations in a supported format matched this search."
+                : $"{browserResults.Count} compatible stations found.";
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            browserResults = [];
+            browserMessage = "Station directory unavailable: " + ex.Message;
+        }
+        finally
+        {
+            browserCancellation?.Dispose();
+            browserCancellation = null;
+            browserSearch = null;
+        }
+    }
+
+    private void AddBrowserStation(RadioBrowserStation station)
+    {
+        stationView = StationView.Saved;
+        CancelStationProbe();
+        editedStation = null;
+        editIndex = -1;
+        editName = station.Name;
+        editUrl = station.Url;
+        editStreamType = station.StreamType;
+        editDirectoryId = station.StationUuid;
+        inspectedUrl = "";
+        editMessage = "Verifying directory station before saving…";
+        StartStationProbe(saveAfter: true);
     }
 
     private void StartStationProbe(bool saveAfter = false)
@@ -590,6 +734,7 @@ internal sealed class MainWindow : Window, IDisposable
         editedStation.Name = editName.Trim();
         editedStation.Url = uri.AbsoluteUri;
         editedStation.StreamType = editStreamType;
+        editedStation.DirectoryId = editDirectoryId;
         inspectedUrl = editUrl.Trim();
         config.Save();
         if (connectionChanged && config.SelectedStation == editIndex && plugin.Player.IsRunning && !plugin.Player.IsSuspended)
@@ -603,6 +748,9 @@ internal sealed class MainWindow : Window, IDisposable
     public void Dispose()
     {
         CancelStationProbe();
+        browserCancellation?.Cancel();
+        browserCancellation?.Dispose();
+        radioBrowser.Dispose();
         displayFont?.Dispose();
         titleFont?.Dispose();
         stationFont?.Dispose();

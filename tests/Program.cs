@@ -141,6 +141,10 @@ Check(bitRate.Update(24000, 44100, 44100) == 0, "rolling bitrate gathers enough 
 Check(bitRate.Update(48000, 44100, 44100) == 192000, "rolling bitrate measures compressed bytes per audio second");
 Check(bitRate.Update(96000, 44100, 44100) == 192000, "rolling bitrate remains fixed between refreshes");
 Check(bitRate.Update(144000, 44100, 44100) == 288000, "rolling bitrate changes on its refresh interval");
+Check(RadioBrowserClient.Classify("MP3", "https://example.com/live") == StationStreamType.Mp3, "directory accepts MP3");
+Check(RadioBrowserClient.Classify("FLAC", "https://example.com/live.flac") == StationStreamType.Unknown, "directory rejects native FLAC");
+Check(RadioBrowserClient.Classify("FLAC", "https://example.com/live.ogg") == StationStreamType.OggFlac, "directory accepts Ogg-FLAC");
+Check(RadioBrowserClient.Classify("OGG", "https://example.com/jazz.ogg", "Jazz", "jazz") == StationStreamType.Unknown, "directory rejects Ogg Vorbis");
 
 // Build a complete Ogg page in memory. FragmentedStream limits every async read
 // to three bytes, like a network stream that does not fill requested buffers.

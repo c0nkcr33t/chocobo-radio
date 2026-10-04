@@ -59,6 +59,7 @@ internal sealed class RadioPlayer : IDisposable
             _ => null,
         };
         if (session == null) status = "Inspect this station or select its stream format first.";
+        else if (!string.IsNullOrWhiteSpace(station.DirectoryId)) _ = RadioBrowserClient.RecordClickAsync(station.DirectoryId);
     }
 
     public void SuspendForRemount()
