@@ -17,6 +17,8 @@ jobs:
       asset: ${{ steps.build.outputs.asset }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
@@ -51,10 +53,23 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
+          git for-each-ref "refs/tags/$RELEASE_TAG" --format='%(contents)' > release-notes.md
+          if [[ "$(cat release-notes.md)" == "Release $RELEASE_TAG" ]]; then
+            use_generated_notes=true
+          else
+            use_generated_notes=false
+          fi
           if gh release view "$RELEASE_TAG" --json isDraft > release.json 2>/dev/null; then
             python -c 'import json; assert json.load(open("release.json"))["isDraft"], "Refusing to overwrite a published release"'
           else
-            gh release create "$RELEASE_TAG" --verify-tag --draft --title "$RELEASE_TAG" --generate-notes
+            if [[ "$use_generated_notes" == true ]]; then
+              gh release create "$RELEASE_TAG" --verify-tag --draft --title "$RELEASE_TAG" --generate-notes
+            else
+              gh release create "$RELEASE_TAG" --verify-tag --draft --title "$RELEASE_TAG" --notes-file release-notes.md
+            fi
+          fi
+          if [[ "$use_generated_notes" == false ]]; then
+            gh release edit "$RELEASE_TAG" --notes-file release-notes.md
           fi
           gh release upload "$RELEASE_TAG" package/latest.zip --clobber
           gh release edit "$RELEASE_TAG" --draft=false --latest

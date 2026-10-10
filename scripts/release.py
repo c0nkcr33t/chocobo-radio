@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Prepare and push a release tag. Run from a clean main branch."""
+import argparse
 from pathlib import Path
 import re
 import subprocess
@@ -13,11 +14,31 @@ def git(*args):
     return subprocess.check_output(['git', *args], cwd=ROOT, text=True).strip()
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description='Prepare a release commit and tag, then queue the GitHub release workflow.')
+    parser.add_argument('version', help='Semantic version such as 1.3.0')
+    notes = parser.add_mutually_exclusive_group()
+    notes.add_argument('-n', '--notes', help='Short, user-facing release note text')
+    notes.add_argument('--notes-file', type=Path, help='Read Markdown release notes from this file')
+    return parser.parse_args()
+
+
 def main():
-    if len(sys.argv) != 2 or not re.fullmatch(r'(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)', sys.argv[1]):
-        sys.exit('Usage: ./scripts/release.sh MAJOR.MINOR.PATCH')
-    version = sys.argv[1]
+    args = parse_args()
+    if not re.fullmatch(r'(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)', args.version):
+        sys.exit('Version must use MAJOR.MINOR.PATCH, for example 1.3.0.')
+    version = args.version
     tag = 'v' + version
+    if args.notes_file:
+        try:
+            release_notes = args.notes_file.read_text().strip()
+        except OSError as ex:
+            sys.exit(f'Could not read release notes: {ex}')
+    else:
+        release_notes = (args.notes or '').strip()
+    if (args.notes is not None or args.notes_file is not None) and not release_notes:
+        sys.exit('Release notes cannot be empty.')
     if git('branch', '--show-current') != 'main' or git('status', '--porcelain'):
         sys.exit('Commit your changes and switch to main before releasing.')
     git('fetch', 'origin', 'main', '--tags')
@@ -26,6 +47,10 @@ def main():
     tag_exists = bool(git('tag', '--list', tag))
     if tag_exists and git('rev-list', '-n', '1', tag) != git('rev-parse', 'HEAD'):
         sys.exit('Tag already exists on a different commit; choose a new version.')
+    if tag_exists and release_notes:
+        existing_notes = git('for-each-ref', 'refs/tags/' + tag, '--format=%(contents)').strip()
+        if existing_notes != release_notes:
+            sys.exit('Tag already exists with different release notes. Delete the unpushed local tag or reuse its notes.')
     project, = ROOT.glob('*.csproj')
     current = ET.parse(project).findtext('./PropertyGroup/Version')
     if tuple(map(int, (version + '.0').split('.'))) < tuple(map(int, current.split('.'))):
@@ -39,7 +64,7 @@ def main():
         git('add', project.name)
         git('commit', '-m', 'Prepare release ' + tag)
     if not tag_exists:
-        git('tag', '-a', tag, '-m', 'Release ' + tag)
+        git('tag', '-a', tag, '-m', release_notes or 'Release ' + tag)
     try:
         git('push', '--atomic', 'origin', 'HEAD:refs/heads/main', 'refs/tags/' + tag)
     except subprocess.CalledProcessError:
